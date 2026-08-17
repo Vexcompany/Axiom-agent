@@ -1,51 +1,45 @@
-# Axiom Agent
+# Axiom AI RV (v2)
 
-AI chat UI with **Sekai gateway** free models (OpenAI-compatible).
+Multi-provider AI agent chat. System prompt identity: **Axiom AI RV** (from Raphael-agent).
 
-## Stack
+## Why not NVIDIA NIM by default?
 
-- Next.js 14 (App Router) + React + TypeScript
-- Sekai gateway streaming (`/v1/chat/completions` style)
-- Local chat sessions in the browser
+On **Vercel**, outbound requests share platform egress IPs. Providers that rate-limit by IP (common on NIM free tiers) will block you even if *you* barely chat — because many other apps share the same IP pool.
 
-## Free models (catalog)
+**Prefer key-based free tiers:**
 
-| Model id | Status (snapshot) | Notes |
-|----------|-------------------|--------|
-| `free/gpt-5.6-luna` | Online | Reasoning · 400K ctx |
-| `gcli/grok-4.6` | Online | Reasoning · 256K ctx |
-| `jb/sekai-flash` | Online | Uncensored · 1M ctx |
-| `free/grok-4.5` | Offline | Upstream timeout |
-| `free/grok-4.6` | Offline | Upstream timeout |
+| Priority | Provider | Light model (Auto first) |
+|----------|----------|---------------------------|
+| 1 | **Groq** | `llama-3.1-8b-instant` |
+| 2 | **OpenRouter** | `meta-llama/llama-3.2-3b-instruct:free` |
+| 3 | **Cerebras** | `llama3.1-8b` |
+| 4 | **Sekai** | `free/gpt-5.6-luna` |
 
-**Auto** tries online models first, then offline ones.
+Auto tries **light** models first, then stronger ones, only for providers whose API keys are set.
 
 ## Setup
 
 ```bash
 npm install
 cp .env.example .env.local
-# fill SEKAI_BASE_URL and SEKAI_API_KEY
+# set GROQ_API_KEY (recommended) and/or OPENROUTER_API_KEY
 npm run dev
 ```
 
-### Environment
+## Env
 
 ```bash
-SEKAI_BASE_URL=https://YOUR-SEKAI-HOST/v1
-SEKAI_API_KEY=your-key
-# optional
-# SEKAI_MAX_TOKENS=4096
+GROQ_API_KEY=
+OPENROUTER_API_KEY=
+CEREBRAS_API_KEY=
+SEKAI_BASE_URL=
+SEKAI_API_KEY=
+# AXIOM_MAX_TOKENS=2048
 ```
 
-`SEKAI_BASE_URL` must **not** include `/chat/completions` — the app appends that path.
+## Stack
 
-If env vars are missing, the app falls back to a **mock stream** so the UI still works.
-
-## Scripts
-
-```bash
-npm run dev
-npm run build
-npm run start
-```
+- Next.js 14 + React + TypeScript
+- Streaming OpenAI-compatible providers
+- Local chat sessions in the browser
+- System prompt: Axiom AI RV (GitHub tools not wired yet)

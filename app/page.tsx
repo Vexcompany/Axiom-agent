@@ -30,22 +30,37 @@ const SESSIONS_KEY = "axiom:sessions:v1";
 const ACTIVE_KEY = "axiom:active:v1";
 const MODEL_KEY = "axiom:model:v1";
 
-/** Mirrors lib/sekai/models.ts — keep labels in sync for the picker. */
+/** Real catalog — keep in sync with lib/providers/catalog.ts */
 const MODELS = [
-  { id: "auto", label: "Auto (Sekai online first)" },
-  { id: "free/gpt-5.6-luna", label: "GPT-5.6 Luna · free · 400K · online" },
-  { id: "gcli/grok-4.6", label: "Grok 4.6 · gcli · 256K · online" },
-  { id: "jb/sekai-flash", label: "Sekai Flash · jb · 1M · online" },
-  { id: "free/grok-4.5", label: "Grok 4.5 · free · 500K · offline" },
-  { id: "free/grok-4.6", label: "Grok 4.6 · free · 256K · offline" },
+  { id: "auto", label: "Auto (light models first)" },
+  { id: "groq/llama-3.1-8b-instant", label: "Groq · Llama 3.1 8B Instant" },
+  { id: "groq/openai-gpt-oss-20b", label: "Groq · GPT-OSS 20B" },
+  { id: "groq/llama-3.3-70b-versatile", label: "Groq · Llama 3.3 70B" },
+  {
+    id: "openrouter/llama-3.2-3b-instruct:free",
+    label: "OpenRouter · Llama 3.2 3B free",
+  },
+  { id: "openrouter/gpt-oss-20b:free", label: "OpenRouter · GPT-OSS 20B free" },
+  {
+    id: "openrouter/llama-3.3-70b-instruct:free",
+    label: "OpenRouter · Llama 3.3 70B free",
+  },
+  { id: "openrouter/gemma-4-31b-it:free", label: "OpenRouter · Gemma 4 31B free" },
+  { id: "cerebras/llama3.1-8b", label: "Cerebras · Llama 3.1 8B" },
+  { id: "cerebras/llama-3.3-70b", label: "Cerebras · Llama 3.3 70B" },
+  { id: "sekai/free/gpt-5.6-luna", label: "Sekai · GPT-5.6 Luna free" },
+  { id: "sekai/gcli/grok-4.6", label: "Sekai · Grok 4.6 gcli" },
+  { id: "sekai/jb/sekai-flash", label: "Sekai · Flash jb" },
+  { id: "sekai/free/grok-4.5", label: "Sekai · Grok 4.5 free (may offline)" },
+  { id: "sekai/free/grok-4.6", label: "Sekai · Grok 4.6 free (may offline)" },
   { id: "mock", label: "Mock stream (no API)" },
 ] as const;
 
 const SUGGESTIONS = [
-  "Explain how multi-provider AI fallback works",
+  "Who are you and what can you do?",
   "Draft a system prompt for a coding agent",
-  "Help me design a chat UI layout",
-  "What should I put in v0.1 of an AI agent?",
+  "Explain multi-provider fallback in simple terms",
+  "Help me plan v0.2 of an AI agent product",
 ];
 
 function uid(): string {
@@ -155,13 +170,12 @@ export default function HomePage() {
   }, []);
 
   const send = useCallback(
-    async (text: string, sessionId: string, history: ChatMessage[]) => {
+    async (_text: string, sessionId: string, history: ChatMessage[]) => {
       setError(null);
       setIsLoading(true);
 
       const controller = new AbortController();
       abortRef.current = controller;
-
       const assistantId = uid();
 
       try {
@@ -289,9 +303,7 @@ export default function HomePage() {
     (id: string) => {
       setSessions((prev) => {
         const next = prev.filter((s) => s.id !== id);
-        if (activeId === id) {
-          setActiveId(next[0]?.id ?? null);
-        }
+        if (activeId === id) setActiveId(next[0]?.id ?? null);
         return next;
       });
     },
@@ -324,9 +336,7 @@ export default function HomePage() {
     }
   };
 
-  if (!hydrated) {
-    return <div className="app" />;
-  }
+  if (!hydrated) return <div className="app" />;
 
   return (
     <div className="app">
@@ -341,8 +351,8 @@ export default function HomePage() {
           <div className="brandRow">
             <div className="brandMark">A</div>
             <div className="brandText">
-              <h1>Axiom</h1>
-              <span>AI agent · Sekai gateway</span>
+              <h1>Axiom AI RV</h1>
+              <span>v2 · multi-provider</span>
             </div>
           </div>
           <button type="button" className="newChatBtn" onClick={handleNewChat}>
@@ -390,7 +400,7 @@ export default function HomePage() {
         </div>
 
         <div className="sidebarFoot">
-          Sekai free models · Auto tries online models first
+          Auto prefers Groq/OpenRouter light models — better on Vercel than NIM shared IP
         </div>
       </aside>
 
@@ -406,7 +416,7 @@ export default function HomePage() {
               <path d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
-          <div className="topbarTitle">{active?.title ?? "Axiom"}</div>
+          <div className="topbarTitle">{active?.title ?? "Axiom AI RV"}</div>
           <select
             className="modelSelect"
             value={model}
@@ -424,10 +434,10 @@ export default function HomePage() {
         {messages.length === 0 ? (
           <div className="empty">
             <div className="emptyMark">A</div>
-            <h2>Axiom</h2>
+            <h2>Axiom AI RV</h2>
             <p>
-              Chat UI with Sekai gateway free models. Set SEKAI_BASE_URL and
-              SEKAI_API_KEY to go live; otherwise mock stream is used.
+              Multi-provider agent chat. Auto uses light models first (Groq 8B,
+              OpenRouter free small, Cerebras) to reduce rate-limit pain on Vercel.
             </p>
             <div className="suggestions">
               {SUGGESTIONS.map((s) => (
@@ -505,7 +515,7 @@ export default function HomePage() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={onKeyDown}
-              placeholder="Message Axiom…"
+              placeholder="Message Axiom AI RV…"
               rows={1}
               aria-label="Message Axiom"
             />
@@ -521,7 +531,7 @@ export default function HomePage() {
               </svg>
             </button>
           </form>
-          <p className="hint">Enter to send · Shift+Enter for new line · Sekai gateway</p>
+          <p className="hint">Enter to send · Shift+Enter for new line</p>
         </div>
       </section>
     </div>

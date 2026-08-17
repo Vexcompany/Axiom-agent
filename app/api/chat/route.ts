@@ -1,21 +1,12 @@
 import {
-  autoFallbackChain,
-  DEFAULT_SEKAI_MODEL,
-  findModel,
-  isKnownModel,
-} from "@/lib/sekai/models";
-import {
-  isSekaiConfigured,
-  SekaiError,
-  streamSekaiChat,
-  type ChatMessage,
-} from "@/lib/sekai/client";
+  anyRealProviderConfigured,
+  streamWithFallback,
+} from "@/lib/providers/router";
+import { ProviderError } from "@/lib/providers/types";
+import type { ChatMessage } from "@/lib/providers/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
-
-const SYSTEM_PROMPT =
-  "You are Axiom, a helpful AI agent. Be clear, direct, and concise. Use Markdown when it helps.";
 
 export async function POST(req: Request): Promise<Response> {
   let messages: ChatMessage[] = [];
@@ -47,75 +38,41 @@ export async function POST(req: Request): Promise<Response> {
     );
   }
 
-  // Mock path when gateway is not configured or user explicitly picks mock.
-  if (requestedModel === "mock" || !isSekaiConfigured()) {
-    return mockStream(last.content, req.signal, !isSekaiConfigured());
+  if (requestedModel === "mock" || !anyRealProviderConfigured()) {
+    return mockStream(last.content, req.signal, !anyRealProviderConfigured());
   }
 
-  const chain =
-    requestedModel === "auto"
-      ? autoFallbackChain()
-      : isKnownModel(requestedModel)
-        ? [requestedModel]
-        : [DEFAULT_SEKAI_MODEL];
-
-  const conversation: ChatMessage[] = [
-    { role: "system", content: SYSTEM_PROMPT },
-    ...messages.slice(-40),
-  ];
-
-  const maxTokens = positiveInt(process.env.SEKAI_MAX_TOKENS, 4096);
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      let lastErr: string | null = null;
-
-      for (const modelId of chain) {
-        if (req.signal.aborted) break;
-        try {
-          let produced = false;
-          for await (const chunk of streamSekaiChat(modelId, conversation, {
-            signal: req.signal,
-            maxTokens,
-          })) {
-            produced = true;
-            controller.enqueue(encoder.encode(chunk));
-          }
-          if (produced) {
-            controller.close();
-            return;
-          }
-          lastErr = `Model ${modelId} returned an empty response.`;
-        } catch (err) {
-          if (err instanceof Error && err.name === "AbortError") {
-            controller.close();
-            return;
-          }
-          const msg =
-            err instanceof SekaiError
-              ? err.message
-              : err instanceof Error
-                ? err.message
-                : "Upstream error";
-          lastErr = `${findModel(modelId)?.label ?? modelId}: ${msg}`;
-          // Auth errors: stop the chain (key is wrong for all models).
-          if (err instanceof SekaiError && err.code === "auth") {
-            break;
-          }
-          // Otherwise try next model in the auto chain.
-          continue;
-        }
-      }
-
-      const safe =
-        lastErr ??
-        "All Sekai models failed. Try again or switch model.";
       try {
-        controller.enqueue(encoder.encode(`\n\n_(${safe})_`));
+        for await (const event of streamWithFallback(requestedModel, messages, {
+          signal: req.signal,
+        })) {
+          if (event.type === "text") {
+            controller.enqueue(encoder.encode(event.text));
+          }
+          // meta (which model won) is not shown in the text stream for now
+        }
         controller.close();
-      } catch {
-        /* closed */
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") {
+          controller.close();
+          return;
+        }
+        const safe =
+          err instanceof ProviderError
+            ? err.message
+            : err instanceof Error
+              ? err.message
+              : "An unexpected error occurred.";
+        try {
+          controller.enqueue(encoder.encode(`\n\n_(${safe})_`));
+          controller.close();
+        } catch {
+          /* closed */
+        }
       }
     },
     cancel() {},
@@ -137,21 +94,24 @@ function mockStream(
   const preview =
     userText.length > 120 ? userText.slice(0, 117) + "…" : userText;
   const reply = [
-    "**Axiom** " + (missingConfig ? "(Sekai not configured)" : "(mock)"),
+    "**Axiom AI RV** " +
+      (missingConfig ? "(no provider keys configured)" : "(mock)"),
     "",
     missingConfig
-      ? "Set `SEKAI_BASE_URL` and `SEKAI_API_KEY` in the environment, then redeploy."
+      ? "Set at least one of: `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `CEREBRAS_API_KEY`, or `SEKAI_BASE_URL` + `SEKAI_API_KEY`, then redeploy."
       : "Mock stream is active.",
     "",
     `You said:`,
     "",
     `> ${preview}`,
     "",
-    "### Sekai free models",
-    "- `free/gpt-5.6-luna` — online · 400K",
-    "- `gcli/grok-4.6` — online · 256K",
-    "- `jb/sekai-flash` — online · 1M",
-    "- `free/grok-4.5` / `free/grok-4.6` — offline (upstream timeout)",
+    "### Recommended free / light models (Vercel-friendly)",
+    "- **Groq** `llama-3.1-8b-instant` — key-based, fast, less shared-IP pain",
+    "- **OpenRouter** `meta-llama/llama-3.2-3b-instruct:free`",
+    "- **Cerebras** `llama3.1-8b`",
+    "- **Sekai** `free/gpt-5.6-luna` (if gateway configured)",
+    "",
+    "Avoid defaulting to large NVIDIA NIM models from Vercel — shared egress IPs often get rate-limited.",
   ].join("\n");
 
   const encoder = new TextEncoder();
@@ -160,7 +120,7 @@ function mockStream(
       for (let i = 0; i < reply.length; i += 14) {
         if (signal.aborted) break;
         controller.enqueue(encoder.encode(reply.slice(i, i + 14)));
-        await new Promise((r) => setTimeout(r, 16));
+        await new Promise((r) => setTimeout(r, 14));
       }
       controller.close();
     },
@@ -173,9 +133,4 @@ function mockStream(
       "Cache-Control": "no-store",
     },
   });
-}
-
-function positiveInt(value: string | undefined, fallback: number): number {
-  const n = Number(value);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
 }
