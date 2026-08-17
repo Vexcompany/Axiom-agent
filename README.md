@@ -1,37 +1,51 @@
 # Axiom Agent
 
-Frontend-first AI chat / agent UI. Backend is a **mock stream** for now so you can polish the product look before wiring real providers (Groq, OpenRouter, Cerebras, etc.).
+AI chat UI with **Sekai gateway** free models (OpenAI-compatible).
 
 ## Stack
 
 - Next.js 14 (App Router) + React + TypeScript
-- Pure CSS (no Tailwind required)
-- `react-markdown` + GFM for assistant replies
+- Sekai gateway streaming (`/v1/chat/completions` style)
+- Local chat sessions in the browser
 
-## Run locally
+## Free models (catalog)
+
+| Model id | Status (snapshot) | Notes |
+|----------|-------------------|--------|
+| `free/gpt-5.6-luna` | Online | Reasoning · 400K ctx |
+| `gcli/grok-4.6` | Online | Reasoning · 256K ctx |
+| `jb/sekai-flash` | Online | Uncensored · 1M ctx |
+| `free/grok-4.5` | Offline | Upstream timeout |
+| `free/grok-4.6` | Offline | Upstream timeout |
+
+**Auto** tries online models first, then offline ones.
+
+## Setup
 
 ```bash
 npm install
+cp .env.example .env.local
+# fill SEKAI_BASE_URL and SEKAI_API_KEY
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+### Environment
 
-## What’s included (v0.1 UI)
+```bash
+SEKAI_BASE_URL=https://YOUR-SEKAI-HOST/v1
+SEKAI_API_KEY=your-key
+# optional
+# SEKAI_MAX_TOKENS=4096
+```
 
-- Sidebar with chat sessions (localStorage)
-- Streaming message bubbles + typing indicator
-- Markdown / code-friendly assistant rendering
-- Model selector (placeholder list for future providers)
-- New chat, clear history, error + retry states
-- Responsive layout (desktop sidebar, mobile drawer)
+`SEKAI_BASE_URL` must **not** include `/chat/completions` — the app appends that path.
 
-## Backend
+If env vars are missing, the app falls back to a **mock stream** so the UI still works.
 
-`POST /api/chat` streams plain text (mock). Replace this route later with a real multi-provider router.
+## Scripts
 
-## Next steps
-
-1. Wire Groq / OpenRouter free models
-2. Add fallback chain
-3. Optional tools (GitHub, etc.)
+```bash
+npm run dev
+npm run build
+npm run start
+```

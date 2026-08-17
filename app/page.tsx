@@ -30,12 +30,15 @@ const SESSIONS_KEY = "axiom:sessions:v1";
 const ACTIVE_KEY = "axiom:active:v1";
 const MODEL_KEY = "axiom:model:v1";
 
+/** Mirrors lib/sekai/models.ts — keep labels in sync for the picker. */
 const MODELS = [
-  { id: "auto", label: "Auto (fallback soon)" },
-  { id: "groq", label: "Groq (soon)" },
-  { id: "openrouter", label: "OpenRouter free (soon)" },
-  { id: "cerebras", label: "Cerebras (soon)" },
-  { id: "mock", label: "Mock stream" },
+  { id: "auto", label: "Auto (Sekai online first)" },
+  { id: "free/gpt-5.6-luna", label: "GPT-5.6 Luna · free · 400K · online" },
+  { id: "gcli/grok-4.6", label: "Grok 4.6 · gcli · 256K · online" },
+  { id: "jb/sekai-flash", label: "Sekai Flash · jb · 1M · online" },
+  { id: "free/grok-4.5", label: "Grok 4.5 · free · 500K · offline" },
+  { id: "free/grok-4.6", label: "Grok 4.6 · free · 256K · offline" },
+  { id: "mock", label: "Mock stream (no API)" },
 ] as const;
 
 const SUGGESTIONS = [
@@ -81,7 +84,7 @@ export default function HomePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [model, setModel] = useState<string>("mock");
+  const [model, setModel] = useState<string>("auto");
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -339,7 +342,7 @@ export default function HomePage() {
             <div className="brandMark">A</div>
             <div className="brandText">
               <h1>Axiom</h1>
-              <span>AI agent · v0.1 UI</span>
+              <span>AI agent · Sekai gateway</span>
             </div>
           </div>
           <button type="button" className="newChatBtn" onClick={handleNewChat}>
@@ -387,7 +390,7 @@ export default function HomePage() {
         </div>
 
         <div className="sidebarFoot">
-          Mock backend active. Connect Groq / OpenRouter next for real models.
+          Sekai free models · Auto tries online models first
         </div>
       </aside>
 
@@ -423,8 +426,8 @@ export default function HomePage() {
             <div className="emptyMark">A</div>
             <h2>Axiom</h2>
             <p>
-              A clean agent chat UI. Backend is mocked for now — polish the product,
-              then plug in free-tier providers with fallback.
+              Chat UI with Sekai gateway free models. Set SEKAI_BASE_URL and
+              SEKAI_API_KEY to go live; otherwise mock stream is used.
             </p>
             <div className="suggestions">
               {SUGGESTIONS.map((s) => (
@@ -518,7 +521,7 @@ export default function HomePage() {
               </svg>
             </button>
           </form>
-          <p className="hint">Enter to send · Shift+Enter for new line · Mock stream</p>
+          <p className="hint">Enter to send · Shift+Enter for new line · Sekai gateway</p>
         </div>
       </section>
     </div>
