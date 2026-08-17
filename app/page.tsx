@@ -1,53 +1,526 @@
-'use client';
+"use client";
 
-import { useChat } from 'ai/react';
+import {
+  type FormEvent,
+  type KeyboardEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
-export default function Chat() {
-  const { messages, input, handleInputChange, handleSubmit, isLoading } = useChat();
+type Role = "user" | "assistant";
+
+interface ChatMessage {
+  id: string;
+  role: Role;
+  content: string;
+}
+
+interface Session {
+  id: string;
+  title: string;
+  updatedAt: number;
+  messages: ChatMessage[];
+}
+
+const SESSIONS_KEY = "axiom:sessions:v1";
+const ACTIVE_KEY = "axiom:active:v1";
+const MODEL_KEY = "axiom:model:v1";
+
+const MODELS = [
+  { id: "auto", label: "Auto (fallback soon)" },
+  { id: "groq", label: "Groq (soon)" },
+  { id: "openrouter", label: "OpenRouter free (soon)" },
+  { id: "cerebras", label: "Cerebras (soon)" },
+  { id: "mock", label: "Mock stream" },
+] as const;
+
+const SUGGESTIONS = [
+  "Explain how multi-provider AI fallback works",
+  "Draft a system prompt for a coding agent",
+  "Help me design a chat UI layout",
+  "What should I put in v0.1 of an AI agent?",
+];
+
+function uid(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function titleFrom(text: string): string {
+  const t = text.trim().replace(/\s+/g, " ");
+  return t.length <= 42 ? t || "New chat" : t.slice(0, 39) + "…";
+}
+
+function loadSessions(): Session[] {
+  try {
+    const raw = localStorage.getItem(SESSIONS_KEY);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (s): s is Session =>
+        typeof s === "object" &&
+        s !== null &&
+        typeof (s as Session).id === "string" &&
+        typeof (s as Session).title === "string" &&
+        Array.isArray((s as Session).messages)
+    );
+  } catch {
+    return [];
+  }
+}
+
+export default function HomePage() {
+  const [hydrated, setHydrated] = useState(false);
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [input, setInput] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [model, setModel] = useState<string>("mock");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const active = sessions.find((s) => s.id === activeId) ?? null;
+  const messages = active?.messages ?? [];
+  const busy = isLoading || isStreaming;
+
+  useEffect(() => {
+    const list = loadSessions();
+    const savedActive = localStorage.getItem(ACTIVE_KEY);
+    const savedModel = localStorage.getItem(MODEL_KEY);
+    setSessions(list);
+    if (savedActive && list.some((s) => s.id === savedActive)) {
+      setActiveId(savedActive);
+    } else if (list[0]) {
+      setActiveId(list[0].id);
+    }
+    if (savedModel && MODELS.some((m) => m.id === savedModel)) {
+      setModel(savedModel);
+    }
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    try {
+      localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
+      if (activeId) localStorage.setItem(ACTIVE_KEY, activeId);
+      localStorage.setItem(MODEL_KEY, model);
+    } catch {
+      /* ignore quota */
+    }
+  }, [sessions, activeId, model, hydrated]);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [messages, isLoading, isStreaming]);
+
+  const resizeTextarea = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  }, []);
+
+  useEffect(resizeTextarea, [input, resizeTextarea]);
+
+  const updateSession = useCallback(
+    (id: string, updater: (s: Session) => Session) => {
+      setSessions((prev) => prev.map((s) => (s.id === id ? updater(s) : s)));
+    },
+    []
+  );
+
+  const createSession = useCallback((firstUserText?: string): Session => {
+    const session: Session = {
+      id: uid(),
+      title: firstUserText ? titleFrom(firstUserText) : "New chat",
+      updatedAt: Date.now(),
+      messages: [],
+    };
+    setSessions((prev) => [session, ...prev]);
+    setActiveId(session.id);
+    return session;
+  }, []);
+
+  const send = useCallback(
+    async (text: string, sessionId: string, history: ChatMessage[]) => {
+      setError(null);
+      setIsLoading(true);
+
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      const assistantId = uid();
+
+      try {
+        const res = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model,
+            messages: history.map((m) => ({
+              role: m.role,
+              content: m.content,
+            })),
+          }),
+          signal: controller.signal,
+        });
+
+        if (!res.ok) {
+          let msg = `Request failed (${res.status})`;
+          try {
+            const data = (await res.json()) as { error?: string };
+            if (data?.error) msg = data.error;
+          } catch {
+            /* ignore */
+          }
+          throw new Error(msg);
+        }
+
+        if (!res.body) throw new Error("Empty response body");
+
+        setIsLoading(false);
+        setIsStreaming(true);
+
+        updateSession(sessionId, (s) => ({
+          ...s,
+          updatedAt: Date.now(),
+          messages: [
+            ...s.messages,
+            { id: assistantId, role: "assistant", content: "" },
+          ],
+        }));
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let full = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          full += decoder.decode(value, { stream: true });
+          const snapshot = full;
+          updateSession(sessionId, (s) => ({
+            ...s,
+            messages: s.messages.map((m) =>
+              m.id === assistantId ? { ...m, content: snapshot } : m
+            ),
+          }));
+        }
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") return;
+        setError(
+          err instanceof Error && err.message
+            ? err.message
+            : "Something went wrong. Try again."
+        );
+      } finally {
+        setIsLoading(false);
+        setIsStreaming(false);
+        abortRef.current = null;
+      }
+    },
+    [model, updateSession]
+  );
+
+  const handleSend = useCallback(
+    async (override?: string) => {
+      const text = (override ?? input).trim();
+      if (!text || busy) return;
+
+      setInput("");
+      setSidebarOpen(false);
+
+      let sid = activeId;
+      let session = active;
+      if (!sid || !session) {
+        session = createSession(text);
+        sid = session.id;
+      }
+
+      const userMsg: ChatMessage = { id: uid(), role: "user", content: text };
+      const nextMessages = [...(session.messages ?? []), userMsg];
+
+      updateSession(sid, (s) => ({
+        ...s,
+        title: s.messages.length === 0 ? titleFrom(text) : s.title,
+        updatedAt: Date.now(),
+        messages: nextMessages,
+      }));
+
+      await send(text, sid, nextMessages);
+    },
+    [input, busy, activeId, active, createSession, updateSession, send]
+  );
+
+  const handleNewChat = useCallback(() => {
+    abortRef.current?.abort();
+    setError(null);
+    setIsLoading(false);
+    setIsStreaming(false);
+    const s = createSession();
+    setActiveId(s.id);
+    setSidebarOpen(false);
+    textareaRef.current?.focus();
+  }, [createSession]);
+
+  const handleSelectSession = useCallback((id: string) => {
+    abortRef.current?.abort();
+    setError(null);
+    setIsLoading(false);
+    setIsStreaming(false);
+    setActiveId(id);
+    setSidebarOpen(false);
+  }, []);
+
+  const handleDeleteSession = useCallback(
+    (id: string) => {
+      setSessions((prev) => {
+        const next = prev.filter((s) => s.id !== id);
+        if (activeId === id) {
+          setActiveId(next[0]?.id ?? null);
+        }
+        return next;
+      });
+    },
+    [activeId]
+  );
+
+  const handleRetry = useCallback(async () => {
+    if (busy || !activeId || !active) return;
+    let history = [...active.messages];
+    while (history.length && history[history.length - 1].role !== "user") {
+      history = history.slice(0, -1);
+    }
+    if (!history.length) {
+      setError(null);
+      return;
+    }
+    updateSession(activeId, (s) => ({ ...s, messages: history }));
+    await send(history[history.length - 1].content, activeId, history);
+  }, [busy, activeId, active, updateSession, send]);
+
+  const onSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    void handleSend();
+  };
+
+  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      void handleSend();
+    }
+  };
+
+  if (!hydrated) {
+    return <div className="app" />;
+  }
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-neutral-100 flex flex-col">
-      <header className="border-b border-neutral-800 p-4">
-        <h1 className="text-xl font-semibold">AI Agent — GitHub × Vercel</h1>
-        <p className="text-sm text-neutral-400">Ask about repos, issues, deployments…</p>
-      </header>
+    <div className="app">
+      <div
+        className={`backdrop${sidebarOpen ? " show" : ""}`}
+        onClick={() => setSidebarOpen(false)}
+        aria-hidden
+      />
 
-      <main className="flex-1 overflow-y-auto p-4 space-y-4 max-w-3xl w-full mx-auto">
-        {messages.map(m => (
-          <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[80%] rounded-2xl px-4 py-2 ${
-              m.role === 'user' ? 'bg-blue-600' : 'bg-neutral-800'
-            }`}>
-              <div className="text-xs text-neutral-400 mb-1">{m.role}</div>
-              <div className="whitespace-pre-wrap">{m.content}</div>
-              {m.toolInvocations?.map((t, i) => (
-                <div key={i} className="mt-2 text-xs bg-neutral-900 rounded p-2 font-mono">
-                  🔧 {t.toolName}({JSON.stringify(t.args)})
-                </div>
+      <aside className={`sidebar${sidebarOpen ? " open" : ""}`}>
+        <div className="sidebarTop">
+          <div className="brandRow">
+            <div className="brandMark">A</div>
+            <div className="brandText">
+              <h1>Axiom</h1>
+              <span>AI agent · v0.1 UI</span>
+            </div>
+          </div>
+          <button type="button" className="newChatBtn" onClick={handleNewChat}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            New chat
+          </button>
+        </div>
+
+        <div className="sessionList">
+          {sessions.length === 0 && (
+            <div style={{ padding: "12px", color: "var(--text-faint)", fontSize: 13 }}>
+              No chats yet
+            </div>
+          )}
+          {sessions.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              className={`sessionItem${s.id === activeId ? " active" : ""}`}
+              onClick={() => handleSelectSession(s.id)}
+            >
+              <span className="sessionTitle">{s.title}</span>
+              <span
+                className="sessionDelete"
+                role="button"
+                tabIndex={0}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDeleteSession(s.id);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.stopPropagation();
+                    handleDeleteSession(s.id);
+                  }
+                }}
+                aria-label="Delete chat"
+              >
+                ×
+              </span>
+            </button>
+          ))}
+        </div>
+
+        <div className="sidebarFoot">
+          Mock backend active. Connect Groq / OpenRouter next for real models.
+        </div>
+      </aside>
+
+      <section className="main">
+        <header className="topbar">
+          <button
+            type="button"
+            className="menuBtn"
+            onClick={() => setSidebarOpen(true)}
+            aria-label="Open sidebar"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+          <div className="topbarTitle">{active?.title ?? "Axiom"}</div>
+          <select
+            className="modelSelect"
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+            aria-label="Model"
+          >
+            {MODELS.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+        </header>
+
+        {messages.length === 0 ? (
+          <div className="empty">
+            <div className="emptyMark">A</div>
+            <h2>Axiom</h2>
+            <p>
+              A clean agent chat UI. Backend is mocked for now — polish the product,
+              then plug in free-tier providers with fallback.
+            </p>
+            <div className="suggestions">
+              {SUGGESTIONS.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  className="suggestion"
+                  onClick={() => void handleSend(s)}
+                  disabled={busy}
+                >
+                  {s}
+                </button>
               ))}
             </div>
           </div>
-        ))}
-        {isLoading && <div className="text-neutral-500 text-sm">thinking…</div>}
-      </main>
+        ) : (
+          <div className="messages">
+            <div className="messagesInner">
+              {messages.map((m) => (
+                <div key={m.id} className={`msg ${m.role}`}>
+                  <span className="msgLabel">
+                    {m.role === "user" ? "You" : "Axiom"}
+                  </span>
+                  <div className="msgBody">
+                    {m.role === "assistant" ? (
+                      m.content ? (
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {m.content}
+                        </ReactMarkdown>
+                      ) : (
+                        <div className="typing" aria-label="Thinking">
+                          <span />
+                          <span />
+                          <span />
+                        </div>
+                      )
+                    ) : (
+                      m.content
+                    )}
+                  </div>
+                </div>
+              ))}
 
-      <form onSubmit={handleSubmit} className="border-t border-neutral-800 p-4">
-        <div className="max-w-3xl mx-auto flex gap-2">
-          <input
-            value={input}
-            onChange={handleInputChange}
-            placeholder="e.g. list my repos for user 'vercel'"
-            className="flex-1 bg-neutral-900 border border-neutral-700 rounded-xl px-4 py-2 outline-none focus:border-blue-500"
-          />
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-xl px-6 py-2 font-medium"
-          >
-            Send
-          </button>
+              {isLoading && (
+                <div className="msg assistant">
+                  <span className="msgLabel">Axiom</span>
+                  <div className="msgBody">
+                    <div className="typing" aria-label="Thinking">
+                      <span />
+                      <span />
+                      <span />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {error && (
+                <div className="errorBanner" role="alert">
+                  <span>{error}</span>
+                  <button type="button" className="retryBtn" onClick={() => void handleRetry()}>
+                    Retry
+                  </button>
+                </div>
+              )}
+
+              <div ref={bottomRef} />
+            </div>
+          </div>
+        )}
+
+        <div className="composerWrap">
+          <form className="composer" onSubmit={onSubmit}>
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={onKeyDown}
+              placeholder="Message Axiom…"
+              rows={1}
+              aria-label="Message Axiom"
+            />
+            <button
+              type="submit"
+              className="sendBtn"
+              disabled={busy || input.trim().length === 0}
+              aria-label="Send"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 19V5" />
+                <path d="M5 12l7-7 7 7" />
+              </svg>
+            </button>
+          </form>
+          <p className="hint">Enter to send · Shift+Enter for new line · Mock stream</p>
         </div>
-      </form>
+      </section>
     </div>
   );
 }
