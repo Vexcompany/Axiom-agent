@@ -1,4 +1,5 @@
-import { AXIOM_SYSTEM_PROMPT } from "@/lib/ai/systemPrompt";
+import { buildSystemPrompt } from "@/lib/ai/systemPrompt";
+import { compactMessages } from "@/lib/memory/compact";
 import { autoCandidates, findCatalogModel } from "./catalog";
 import { streamOpenAICompatible } from "./openaiCompatible";
 import type { CatalogModel, ChatMessage, ProviderId } from "./types";
@@ -83,10 +84,6 @@ function resolveEndpoint(provider: ProviderId): {
   }
 }
 
-/**
- * Build try-order. For Auto + preferredModel (sticky), preferred is first if
- * still configured — so the same session does not jump models randomly.
- */
 export function resolveChain(
   requestedModel: string,
   preferredModel?: string
@@ -113,7 +110,11 @@ export function resolveChain(
 export async function* streamWithFallback(
   requestedModel: string,
   userMessages: ChatMessage[],
-  opts?: { signal?: AbortSignal; preferredModel?: string }
+  opts?: {
+    signal?: AbortSignal;
+    preferredModel?: string;
+    existingMemory?: string;
+  }
 ): AsyncGenerator<
   { type: "text"; text: string } | { type: "meta"; modelId: string },
   void,
@@ -128,10 +129,23 @@ export async function* streamWithFallback(
     );
   }
 
-  const maxTokens = positiveInt(env("AXIOM_MAX_TOKENS"), 2048);
+  const maxTokens = positiveInt(env("AXIOM_MAX_TOKENS"), 1536);
+  const keepRecent = positiveInt(env("AXIOM_KEEP_RECENT"), 12);
+
+  const { recent, memorySummary } = compactMessages(userMessages, {
+    keepRecent,
+    existingSummary: opts?.existingMemory,
+  });
+
+  const system = buildSystemPrompt({
+    githubConnected: false,
+    toolsActive: false,
+    memorySummary: memorySummary || undefined,
+  });
+
   const conversation: ChatMessage[] = [
-    { role: "system", content: AXIOM_SYSTEM_PROMPT },
-    ...userMessages.slice(-40),
+    { role: "system", content: system },
+    ...recent,
   ];
 
   let lastErr: string | null = null;
