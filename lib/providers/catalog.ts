@@ -1,52 +1,80 @@
 import type { CatalogModel, ProviderId } from "./types";
 
 /**
- * Model catalog for Axiom AI RV v2.
+ * Model catalog — refreshed Aug 2026 from provider docs / OpenRouter free list.
  *
- * Priority for Auto (light first):
- * 1. Groq small/fast — API key auth, not shared Vercel egress IP pools like NIM
- * 2. OpenRouter :free small models — key-based, good fallback
- * 3. Cerebras — key-based, fast
- * 4. Sekai free/online — gateway; use when configured
- *
- * Avoid defaulting to huge NVIDIA NIM models from serverless shared IPs:
- * rate limits often key off source IP, and Vercel egress is shared.
+ * Auto order: light + reliable key-based first (Groq 8B, OpenRouter free small,
+ * Cerebras), then stronger free models. Sticky preferred model is handled in
+ * the router (session continues on the same model when possible).
  */
 
 export const CATALOG: readonly CatalogModel[] = [
-  // ── Groq (preferred for Auto) ───────────────────────────────────────────
+  // ── Groq (free tier = rate limits, all listed models) ────────────────────
   {
     id: "groq/llama-3.1-8b-instant",
     upstreamModel: "llama-3.1-8b-instant",
     provider: "groq",
     label: "Llama 3.1 8B Instant",
-    tag: "Groq · fast · light",
+    tag: "Groq · free tier · light",
     light: true,
-    note: "Best default on Vercel free tier",
-  },
-  {
-    id: "groq/llama-3.3-70b-versatile",
-    upstreamModel: "llama-3.3-70b-versatile",
-    provider: "groq",
-    label: "Llama 3.3 70B",
-    tag: "Groq · stronger",
-    light: false,
+    note: "Fast default",
   },
   {
     id: "groq/openai-gpt-oss-20b",
     upstreamModel: "openai/gpt-oss-20b",
     provider: "groq",
     label: "GPT-OSS 20B",
-    tag: "Groq · light",
+    tag: "Groq · free tier · light",
     light: true,
   },
-
-  // ── OpenRouter free ─────────────────────────────────────────────────────
   {
-    id: "openrouter/llama-3.2-3b-instruct:free",
-    upstreamModel: "meta-llama/llama-3.2-3b-instruct:free",
+    id: "groq/llama-3.3-70b-versatile",
+    upstreamModel: "llama-3.3-70b-versatile",
+    provider: "groq",
+    label: "Llama 3.3 70B",
+    tag: "Groq · free tier",
+    light: false,
+  },
+  {
+    id: "groq/openai-gpt-oss-120b",
+    upstreamModel: "openai/gpt-oss-120b",
+    provider: "groq",
+    label: "GPT-OSS 120B",
+    tag: "Groq · free tier",
+    light: false,
+  },
+
+  // ── OpenRouter :free (Aug 2026) ─────────────────────────────────────────
+  {
+    id: "openrouter/free",
+    upstreamModel: "openrouter/free",
     provider: "openrouter",
-    label: "Llama 3.2 3B (free)",
+    label: "OpenRouter Free Router",
+    tag: "OpenRouter · free · auto-pick",
+    light: true,
+    note: "Official free-model router",
+  },
+  {
+    id: "openrouter/gemma-4-26b-a4b-it:free",
+    upstreamModel: "google/gemma-4-26b-a4b-it:free",
+    provider: "openrouter",
+    label: "Gemma 4 26B A4B (free)",
+    tag: "OpenRouter · free · light",
+    light: true,
+  },
+  {
+    id: "openrouter/gemma-4-31b-it:free",
+    upstreamModel: "google/gemma-4-31b-it:free",
+    provider: "openrouter",
+    label: "Gemma 4 31B (free)",
+    tag: "OpenRouter · free",
+    light: false,
+  },
+  {
+    id: "openrouter/qwen3-8b:free",
+    upstreamModel: "qwen/qwen3-8b:free",
+    provider: "openrouter",
+    label: "Qwen3 8B (free)",
     tag: "OpenRouter · free · light",
     light: true,
   },
@@ -59,38 +87,39 @@ export const CATALOG: readonly CatalogModel[] = [
     light: false,
   },
   {
-    id: "openrouter/gemma-4-31b-it:free",
-    upstreamModel: "google/gemma-4-31b-it:free",
+    id: "openrouter/north-mini-code:free",
+    upstreamModel: "cohere/north-mini-code:free",
     provider: "openrouter",
-    label: "Gemma 4 31B (free)",
+    label: "North Mini Code (free)",
+    tag: "OpenRouter · free · coding",
+    light: true,
+  },
+  {
+    id: "openrouter/nemotron-3.5-lightning:free",
+    upstreamModel: "nvidia/nemotron-3.5-lightning:free",
+    provider: "openrouter",
+    label: "Nemotron 3.5 Lightning (free)",
     tag: "OpenRouter · free",
     light: false,
-  },
-  {
-    id: "openrouter/gpt-oss-20b:free",
-    upstreamModel: "openai/gpt-oss-20b:free",
-    provider: "openrouter",
-    label: "GPT-OSS 20B (free)",
-    tag: "OpenRouter · free · light",
-    light: true,
+    note: "Via OpenRouter key, not direct NIM IP",
   },
 
-  // ── Cerebras ────────────────────────────────────────────────────────────
+  // ── Cerebras (public catalog) ───────────────────────────────────────────
   {
-    id: "cerebras/llama3.1-8b",
-    upstreamModel: "llama3.1-8b",
+    id: "cerebras/gpt-oss-120b",
+    upstreamModel: "gpt-oss-120b",
     provider: "cerebras",
-    label: "Llama 3.1 8B",
-    tag: "Cerebras · fast · light",
-    light: true,
+    label: "GPT-OSS 120B",
+    tag: "Cerebras · free tier",
+    light: false,
   },
   {
-    id: "cerebras/llama-3.3-70b",
-    upstreamModel: "llama-3.3-70b",
+    id: "cerebras/gemma-4-31b",
+    upstreamModel: "gemma-4-31b",
     provider: "cerebras",
-    label: "Llama 3.3 70B",
-    tag: "Cerebras · stronger",
-    light: false,
+    label: "Gemma 4 31B",
+    tag: "Cerebras · free tier",
+    light: true,
   },
 
   // ── Sekai gateway ───────────────────────────────────────────────────────
@@ -98,8 +127,8 @@ export const CATALOG: readonly CatalogModel[] = [
     id: "sekai/free/gpt-5.6-luna",
     upstreamModel: "free/gpt-5.6-luna",
     provider: "sekai",
-    label: "GPT-5.6 Luna (Sekai free)",
-    tag: "Sekai · free · 400K",
+    label: "GPT-5.6 Luna (Sekai)",
+    tag: "Sekai · free",
     light: true,
   },
   {
@@ -107,7 +136,7 @@ export const CATALOG: readonly CatalogModel[] = [
     upstreamModel: "gcli/grok-4.6",
     provider: "sekai",
     label: "Grok 4.6 (Sekai gcli)",
-    tag: "Sekai · free · 256K",
+    tag: "Sekai · free",
     light: false,
   },
   {
@@ -115,29 +144,28 @@ export const CATALOG: readonly CatalogModel[] = [
     upstreamModel: "jb/sekai-flash",
     provider: "sekai",
     label: "Sekai Flash (jb)",
-    tag: "Sekai · 1M",
+    tag: "Sekai",
     light: true,
   },
   {
     id: "sekai/free/grok-4.5",
     upstreamModel: "free/grok-4.5",
     provider: "sekai",
-    label: "Grok 4.5 (Sekai free)",
-    tag: "Sekai · may be offline",
+    label: "Grok 4.5 (Sekai)",
+    tag: "Sekai · often offline",
     light: false,
-    note: "Often upstream timeout",
+    note: "Upstream timeout common",
   },
   {
     id: "sekai/free/grok-4.6",
     upstreamModel: "free/grok-4.6",
     provider: "sekai",
     label: "Grok 4.6 (Sekai free)",
-    tag: "Sekai · may be offline",
+    tag: "Sekai · often offline",
     light: false,
-    note: "Often upstream timeout",
+    note: "Upstream timeout common",
   },
 
-  // ── Mock ────────────────────────────────────────────────────────────────
   {
     id: "mock",
     upstreamModel: "mock",
@@ -156,10 +184,6 @@ export function modelsForProvider(provider: ProviderId): CatalogModel[] {
   return CATALOG.filter((m) => m.provider === provider);
 }
 
-/**
- * Auto chain: light models first among configured providers, then heavier.
- * Skip providers without API keys at runtime (router filters further).
- */
 export function autoCandidates(): CatalogModel[] {
   const real = CATALOG.filter((m) => m.provider !== "mock");
   const light = real.filter((m) => m.light);

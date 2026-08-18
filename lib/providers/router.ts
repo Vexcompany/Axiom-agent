@@ -83,25 +83,43 @@ function resolveEndpoint(provider: ProviderId): {
   }
 }
 
-export function resolveChain(requestedModel: string): CatalogModel[] {
+/**
+ * Build try-order. For Auto + preferredModel (sticky), preferred is first if
+ * still configured — so the same session does not jump models randomly.
+ */
+export function resolveChain(
+  requestedModel: string,
+  preferredModel?: string
+): CatalogModel[] {
   if (requestedModel === "auto") {
-    return autoCandidates().filter((m) => isProviderConfigured(m.provider));
+    let chain = autoCandidates().filter((m) => isProviderConfigured(m.provider));
+    if (preferredModel) {
+      const pref = findCatalogModel(preferredModel);
+      if (pref && pref.provider !== "mock" && isProviderConfigured(pref.provider)) {
+        chain = [pref, ...chain.filter((m) => m.id !== pref.id)];
+      }
+    }
+    return chain;
   }
+
   const found = findCatalogModel(requestedModel);
   if (found && found.provider !== "mock") {
     if (!isProviderConfigured(found.provider)) return [];
     return [found];
   }
-  // Unknown id: try auto light path
   return autoCandidates().filter((m) => isProviderConfigured(m.provider));
 }
 
 export async function* streamWithFallback(
   requestedModel: string,
   userMessages: ChatMessage[],
-  opts?: { signal?: AbortSignal }
-): AsyncGenerator<{ type: "text"; text: string } | { type: "meta"; modelId: string }, void, unknown> {
-  const chain = resolveChain(requestedModel);
+  opts?: { signal?: AbortSignal; preferredModel?: string }
+): AsyncGenerator<
+  { type: "text"; text: string } | { type: "meta"; modelId: string },
+  void,
+  unknown
+> {
+  const chain = resolveChain(requestedModel, opts?.preferredModel);
   if (chain.length === 0) {
     throw new ProviderError(
       "No provider configured. Set GROQ_API_KEY, OPENROUTER_API_KEY, CEREBRAS_API_KEY, or SEKAI_* env vars.",
@@ -148,10 +166,6 @@ export async function* streamWithFallback(
             ? err.message
             : "Upstream error";
       lastErr = `${model.label}: ${msg}`;
-      if (err instanceof ProviderError && err.code === "auth") {
-        // Bad key for this provider — skip other models on same provider
-        continue;
-      }
       continue;
     }
   }

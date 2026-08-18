@@ -8,14 +8,19 @@ import type { ChatMessage } from "@/lib/providers/types";
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
+/** Prefix so the client can stick Auto to the same model across turns. */
+const META_PREFIX = "%%%META:";
+
 export async function POST(req: Request): Promise<Response> {
   let messages: ChatMessage[] = [];
   let requestedModel = "auto";
+  let preferredModel: string | undefined;
 
   try {
     const body = (await req.json()) as {
       messages?: Array<{ role?: string; content?: string }>;
       model?: string;
+      preferredModel?: string;
     };
     const raw = Array.isArray(body.messages) ? body.messages : [];
     for (const m of raw) {
@@ -25,6 +30,9 @@ export async function POST(req: Request): Promise<Response> {
     }
     if (typeof body.model === "string" && body.model.trim()) {
       requestedModel = body.model.trim();
+    }
+    if (typeof body.preferredModel === "string" && body.preferredModel.trim()) {
+      preferredModel = body.preferredModel.trim();
     }
   } catch {
     return Response.json({ error: "Invalid JSON body." }, { status: 400 });
@@ -49,11 +57,16 @@ export async function POST(req: Request): Promise<Response> {
       try {
         for await (const event of streamWithFallback(requestedModel, messages, {
           signal: req.signal,
+          preferredModel:
+            requestedModel === "auto" ? preferredModel : undefined,
         })) {
-          if (event.type === "text") {
+          if (event.type === "meta") {
+            controller.enqueue(
+              encoder.encode(`${META_PREFIX}${event.modelId}\n`)
+            );
+          } else {
             controller.enqueue(encoder.encode(event.text));
           }
-          // meta (which model won) is not shown in the text stream for now
         }
         controller.close();
       } catch (err) {
@@ -98,20 +111,12 @@ function mockStream(
       (missingConfig ? "(no provider keys configured)" : "(mock)"),
     "",
     missingConfig
-      ? "Set at least one of: `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `CEREBRAS_API_KEY`, or `SEKAI_BASE_URL` + `SEKAI_API_KEY`, then redeploy."
+      ? "Set GROQ_API_KEY and/or OPENROUTER_API_KEY (recommended), then redeploy."
       : "Mock stream is active.",
     "",
     `You said:`,
     "",
     `> ${preview}`,
-    "",
-    "### Recommended free / light models (Vercel-friendly)",
-    "- **Groq** `llama-3.1-8b-instant` — key-based, fast, less shared-IP pain",
-    "- **OpenRouter** `meta-llama/llama-3.2-3b-instruct:free`",
-    "- **Cerebras** `llama3.1-8b`",
-    "- **Sekai** `free/gpt-5.6-luna` (if gateway configured)",
-    "",
-    "Avoid defaulting to large NVIDIA NIM models from Vercel — shared egress IPs often get rate-limited.",
   ].join("\n");
 
   const encoder = new TextEncoder();
@@ -120,7 +125,7 @@ function mockStream(
       for (let i = 0; i < reply.length; i += 14) {
         if (signal.aborted) break;
         controller.enqueue(encoder.encode(reply.slice(i, i + 14)));
-        await new Promise((r) => setTimeout(r, 14));
+        await new Promise((r) => setTimeout(r, 12));
       }
       controller.close();
     },
