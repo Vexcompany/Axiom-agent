@@ -24,35 +24,36 @@ interface Session {
   title: string;
   updatedAt: number;
   messages: ChatMessage[];
+  /** Sticky model used when selector is Auto (last successful upstream). */
+  stickyModelId?: string;
 }
 
 const SESSIONS_KEY = "axiom:sessions:v1";
 const ACTIVE_KEY = "axiom:active:v1";
 const MODEL_KEY = "axiom:model:v1";
+const META_PREFIX = "%%%META:";
 
-/** Real catalog — keep in sync with lib/providers/catalog.ts */
+/** Keep in sync with lib/providers/catalog.ts */
 const MODELS = [
-  { id: "auto", label: "Auto (light models first)" },
+  { id: "auto", label: "Auto (sticky · light first)" },
   { id: "groq/llama-3.1-8b-instant", label: "Groq · Llama 3.1 8B Instant" },
   { id: "groq/openai-gpt-oss-20b", label: "Groq · GPT-OSS 20B" },
   { id: "groq/llama-3.3-70b-versatile", label: "Groq · Llama 3.3 70B" },
-  {
-    id: "openrouter/llama-3.2-3b-instruct:free",
-    label: "OpenRouter · Llama 3.2 3B free",
-  },
-  { id: "openrouter/gpt-oss-20b:free", label: "OpenRouter · GPT-OSS 20B free" },
-  {
-    id: "openrouter/llama-3.3-70b-instruct:free",
-    label: "OpenRouter · Llama 3.3 70B free",
-  },
+  { id: "groq/openai-gpt-oss-120b", label: "Groq · GPT-OSS 120B" },
+  { id: "openrouter/free", label: "OpenRouter · Free Router" },
+  { id: "openrouter/gemma-4-26b-a4b-it:free", label: "OpenRouter · Gemma 4 26B free" },
+  { id: "openrouter/qwen3-8b:free", label: "OpenRouter · Qwen3 8B free" },
+  { id: "openrouter/north-mini-code:free", label: "OpenRouter · North Mini Code free" },
   { id: "openrouter/gemma-4-31b-it:free", label: "OpenRouter · Gemma 4 31B free" },
-  { id: "cerebras/llama3.1-8b", label: "Cerebras · Llama 3.1 8B" },
-  { id: "cerebras/llama-3.3-70b", label: "Cerebras · Llama 3.3 70B" },
-  { id: "sekai/free/gpt-5.6-luna", label: "Sekai · GPT-5.6 Luna free" },
+  { id: "openrouter/llama-3.3-70b-instruct:free", label: "OpenRouter · Llama 3.3 70B free" },
+  { id: "openrouter/nemotron-3.5-lightning:free", label: "OpenRouter · Nemotron 3.5 Lightning free" },
+  { id: "cerebras/gemma-4-31b", label: "Cerebras · Gemma 4 31B" },
+  { id: "cerebras/gpt-oss-120b", label: "Cerebras · GPT-OSS 120B" },
+  { id: "sekai/free/gpt-5.6-luna", label: "Sekai · GPT-5.6 Luna" },
   { id: "sekai/gcli/grok-4.6", label: "Sekai · Grok 4.6 gcli" },
   { id: "sekai/jb/sekai-flash", label: "Sekai · Flash jb" },
-  { id: "sekai/free/grok-4.5", label: "Sekai · Grok 4.5 free (may offline)" },
-  { id: "sekai/free/grok-4.6", label: "Sekai · Grok 4.6 free (may offline)" },
+  { id: "sekai/free/grok-4.5", label: "Sekai · Grok 4.5 (often offline)" },
+  { id: "sekai/free/grok-4.6", label: "Sekai · Grok 4.6 free (often offline)" },
   { id: "mock", label: "Mock stream (no API)" },
 ] as const;
 
@@ -70,6 +71,22 @@ function uid(): string {
 function titleFrom(text: string): string {
   const t = text.trim().replace(/\s+/g, " ");
   return t.length <= 42 ? t || "New chat" : t.slice(0, 39) + "…";
+}
+
+/** Strip %%%META: lines from streamed text for display. */
+function stripMeta(raw: string): { visible: string; modelId: string | null } {
+  let modelId: string | null = null;
+  const lines = raw.split("\n");
+  const kept: string[] = [];
+  for (const line of lines) {
+    if (line.startsWith(META_PREFIX)) {
+      const id = line.slice(META_PREFIX.length).trim();
+      if (id) modelId = id;
+      continue;
+    }
+    kept.push(line);
+  }
+  return { visible: kept.join("\n"), modelId };
 }
 
 function loadSessions(): Session[] {
@@ -133,7 +150,7 @@ export default function HomePage() {
       if (activeId) localStorage.setItem(ACTIVE_KEY, activeId);
       localStorage.setItem(MODEL_KEY, model);
     } catch {
-      /* ignore quota */
+      /* ignore */
     }
   }, [sessions, activeId, model, hydrated]);
 
@@ -178,12 +195,18 @@ export default function HomePage() {
       abortRef.current = controller;
       const assistantId = uid();
 
+      const sticky =
+        model === "auto"
+          ? sessions.find((s) => s.id === sessionId)?.stickyModelId
+          : undefined;
+
       try {
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             model,
+            preferredModel: sticky,
             messages: history.map((m) => ({
               role: m.role,
               content: m.content,
@@ -225,11 +248,13 @@ export default function HomePage() {
           const { done, value } = await reader.read();
           if (done) break;
           full += decoder.decode(value, { stream: true });
-          const snapshot = full;
+          const { visible, modelId } = stripMeta(full);
+
           updateSession(sessionId, (s) => ({
             ...s,
+            stickyModelId: modelId ?? s.stickyModelId,
             messages: s.messages.map((m) =>
-              m.id === assistantId ? { ...m, content: snapshot } : m
+              m.id === assistantId ? { ...m, content: visible } : m
             ),
           }));
         }
@@ -246,7 +271,7 @@ export default function HomePage() {
         abortRef.current = null;
       }
     },
-    [model, updateSession]
+    [model, sessions, updateSession]
   );
 
   const handleSend = useCallback(
@@ -352,7 +377,7 @@ export default function HomePage() {
             <div className="brandMark">A</div>
             <div className="brandText">
               <h1>Axiom AI RV</h1>
-              <span>v2 · multi-provider</span>
+              <span>v2 · sticky Auto</span>
             </div>
           </div>
           <button type="button" className="newChatBtn" onClick={handleNewChat}>
@@ -400,7 +425,9 @@ export default function HomePage() {
         </div>
 
         <div className="sidebarFoot">
-          Auto prefers Groq/OpenRouter light models — better on Vercel than NIM shared IP
+          {model === "auto" && active?.stickyModelId
+            ? `Auto locked: ${active.stickyModelId}`
+            : "Auto sticks to the first working model in this chat"}
         </div>
       </aside>
 
@@ -436,8 +463,8 @@ export default function HomePage() {
             <div className="emptyMark">A</div>
             <h2>Axiom AI RV</h2>
             <p>
-              Multi-provider agent chat. Auto uses light models first (Groq 8B,
-              OpenRouter free small, Cerebras) to reduce rate-limit pain on Vercel.
+              Auto picks a light free model once, then stays on it for the rest of
+              the chat so answers stay consistent.
             </p>
             <div className="suggestions">
               {SUGGESTIONS.map((s) => (
