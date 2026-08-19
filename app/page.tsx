@@ -3,6 +3,7 @@
 import {
   type FormEvent,
   type KeyboardEvent,
+  type ReactNode,
   useCallback,
   useEffect,
   useRef,
@@ -24,7 +25,6 @@ interface Session {
   title: string;
   updatedAt: number;
   messages: ChatMessage[];
-  /** Sticky model used when selector is Auto (last successful upstream). */
   stickyModelId?: string;
 }
 
@@ -33,7 +33,6 @@ const ACTIVE_KEY = "axiom:active:v1";
 const MODEL_KEY = "axiom:model:v1";
 const META_PREFIX = "%%%META:";
 
-/** Keep in sync with lib/providers/catalog.ts */
 const MODELS = [
   { id: "auto", label: "Auto (sticky · light first)" },
   { id: "groq/llama-3.1-8b-instant", label: "Groq · Llama 3.1 8B Instant" },
@@ -73,7 +72,6 @@ function titleFrom(text: string): string {
   return t.length <= 42 ? t || "New chat" : t.slice(0, 39) + "…";
 }
 
-/** Strip %%%META: lines from streamed text for display. */
 function stripMeta(raw: string): { visible: string; modelId: string | null } {
   let modelId: string | null = null;
   const lines = raw.split("\n");
@@ -88,6 +86,97 @@ function stripMeta(raw: string): { visible: string; modelId: string | null } {
   }
   return { visible: kept.join("\n"), modelId };
 }
+
+function copyText(text: string): Promise<void> {
+  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    return navigator.clipboard.writeText(text);
+  }
+  return new Promise((resolve, reject) => {
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      resolve();
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
+function CodeBlock({
+  className,
+  children,
+}: {
+  className?: string;
+  children?: ReactNode;
+}) {
+  const [copied, setCopied] = useState(false);
+  const lang = /language-([\w-]+)/.exec(className || "")?.[1] ?? "";
+  const code = String(children ?? "").replace(/\n$/, "");
+
+  const onCopy = async () => {
+    try {
+      await copyText(code);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  return (
+    <div className="codeBlock">
+      <div className="codeBlockBar">
+        <span className="codeLang">{lang || "code"}</span>
+        <button type="button" className="codeCopyBtn" onClick={() => void onCopy()}>
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      <pre>
+        <code className={className}>{code}</code>
+      </pre>
+    </div>
+  );
+}
+
+const markdownComponents = {
+  pre({ children }: { children?: ReactNode }) {
+    return <>{children}</>;
+  },
+  code({
+    className,
+    children,
+    ...props
+  }: {
+    className?: string;
+    children?: ReactNode;
+  }) {
+    const raw = String(children ?? "");
+    const isBlock =
+      (typeof className === "string" && className.length > 0) ||
+      raw.includes("\n");
+    if (!isBlock) {
+      return (
+        <code className="inlineCode" {...props}>
+          {children}
+        </code>
+      );
+    }
+    return <CodeBlock className={className}>{children}</CodeBlock>;
+  },
+  table({ children }: { children?: ReactNode }) {
+    return (
+      <div className="tableWrap">
+        <table>{children}</table>
+      </div>
+    );
+  },
+};
 
 function loadSessions(): Session[] {
   try {
@@ -349,6 +438,20 @@ export default function HomePage() {
     await send(history[history.length - 1].content, activeId, history);
   }, [busy, activeId, active, updateSession, send]);
 
+  const handleCopyChat = useCallback(async () => {
+    if (!active || active.messages.length === 0) return;
+    const lines = active.messages.map((m) => {
+      const who = m.role === "user" ? "You" : "Axiom";
+      return `${who}:\n${m.content}`;
+    });
+    try {
+      await copyText(lines.join("\n\n"));
+      setError(null);
+    } catch {
+      setError("Could not copy chat.");
+    }
+  }, [active]);
+
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     void handleSend();
@@ -456,6 +559,19 @@ export default function HomePage() {
               </option>
             ))}
           </select>
+          <button
+            type="button"
+            className="iconBtn"
+            onClick={() => void handleCopyChat()}
+            disabled={!active || active.messages.length === 0}
+            title="Copy full chat"
+            aria-label="Copy full chat"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="9" y="9" width="13" height="13" rx="2" />
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+            </svg>
+          </button>
         </header>
 
         {messages.length === 0 ? (
@@ -491,7 +607,10 @@ export default function HomePage() {
                   <div className="msgBody">
                     {m.role === "assistant" ? (
                       m.content ? (
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={markdownComponents as any}
+                        >
                           {m.content}
                         </ReactMarkdown>
                       ) : (
