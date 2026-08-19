@@ -1,24 +1,13 @@
 import type { CatalogModel, ProviderId } from "./types";
 
 /**
- * Model catalog — refreshed Aug 2026 from provider docs / OpenRouter free list.
+ * Model catalog — Aug 2026.
  *
- * Auto order: light + reliable key-based first (Groq 8B, OpenRouter free small,
- * Cerebras), then stronger free models. Sticky preferred model is handled in
- * the router (session continues on the same model when possible).
+ * Groq shut down llama-3.1-8b-instant and llama-3.3-70b-versatile on 2026-08-16.
+ * Replacements: openai/gpt-oss-20b and openai/gpt-oss-120b (or qwen/qwen3.6-27b).
  */
 
 export const CATALOG: readonly CatalogModel[] = [
-  // ── Groq (free tier = rate limits, all listed models) ────────────────────
-  {
-    id: "groq/llama-3.1-8b-instant",
-    upstreamModel: "llama-3.1-8b-instant",
-    provider: "groq",
-    label: "Llama 3.1 8B Instant",
-    tag: "Groq · free tier · light",
-    light: true,
-    note: "Fast default",
-  },
   {
     id: "groq/openai-gpt-oss-20b",
     upstreamModel: "openai/gpt-oss-20b",
@@ -26,14 +15,7 @@ export const CATALOG: readonly CatalogModel[] = [
     label: "GPT-OSS 20B",
     tag: "Groq · free tier · light",
     light: true,
-  },
-  {
-    id: "groq/llama-3.3-70b-versatile",
-    upstreamModel: "llama-3.3-70b-versatile",
-    provider: "groq",
-    label: "Llama 3.3 70B",
-    tag: "Groq · free tier",
-    light: false,
+    note: "Default light (replaces deprecated Llama 3.1 8B)",
   },
   {
     id: "groq/openai-gpt-oss-120b",
@@ -43,8 +25,14 @@ export const CATALOG: readonly CatalogModel[] = [
     tag: "Groq · free tier",
     light: false,
   },
-
-  // ── OpenRouter :free (Aug 2026) ─────────────────────────────────────────
+  {
+    id: "groq/qwen3.6-27b",
+    upstreamModel: "qwen/qwen3.6-27b",
+    provider: "groq",
+    label: "Qwen3.6 27B",
+    tag: "Groq · free tier",
+    light: false,
+  },
   {
     id: "openrouter/free",
     upstreamModel: "openrouter/free",
@@ -103,8 +91,6 @@ export const CATALOG: readonly CatalogModel[] = [
     light: false,
     note: "Via OpenRouter key, not direct NIM IP",
   },
-
-  // ── Cerebras (public catalog) ───────────────────────────────────────────
   {
     id: "cerebras/gpt-oss-120b",
     upstreamModel: "gpt-oss-120b",
@@ -121,8 +107,6 @@ export const CATALOG: readonly CatalogModel[] = [
     tag: "Cerebras · free tier",
     light: true,
   },
-
-  // ── Sekai gateway ───────────────────────────────────────────────────────
   {
     id: "sekai/free/gpt-5.6-luna",
     upstreamModel: "free/gpt-5.6-luna",
@@ -165,7 +149,6 @@ export const CATALOG: readonly CatalogModel[] = [
     light: false,
     note: "Upstream timeout common",
   },
-
   {
     id: "mock",
     upstreamModel: "mock",
