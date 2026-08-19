@@ -1,6 +1,5 @@
 /**
  * Agent identity + capability prompt for Axiom AI RV (v2).
- *
  * Ported from Raphael-agent. Tools are not wired in this frontend-first
  * build yet, so githubConnected/toolsActive default to false until tools land.
  */
