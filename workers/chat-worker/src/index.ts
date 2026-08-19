@@ -12,7 +12,6 @@ export interface Env {
   SEKAI_API_KEY?: string;
   SEKAI_BASE_URL?: string;
   AXIOM_MAX_TOKENS?: string;
-  // Optional: allow origin for CORS (comma-separated). Defaults to *
   ALLOWED_ORIGINS?: string;
 }
 
@@ -57,12 +56,9 @@ function resolveProvider(
   model: string,
   env: Env
 ): { config: ProviderConfig; resolvedModel: string } | null {
-  // Simple routing: prefix or known provider names
-  // Prefer explicit provider:model or fallback order matching Axiom-agent
   const lower = model.toLowerCase();
 
   if (env.GROQ_API_KEY && (lower.startsWith("groq/") || lower.includes("llama") || lower === "auto" || !model.includes("/"))) {
-    // Default / auto / plain model names go to Groq first when key present
     const m = lower.startsWith("groq/") ? model.slice(5) : model === "auto" ? "llama-3.1-8b-instant" : model;
     return {
       config: {
@@ -113,7 +109,6 @@ function resolveProvider(
     };
   }
 
-  // Final fallbacks in priority order
   if (env.GROQ_API_KEY) {
     return {
       config: {
@@ -171,7 +166,6 @@ export default {
     const origin = request.headers.get("Origin");
     const url = new URL(request.url);
 
-    // CORS preflight
     if (request.method === "OPTIONS") {
       return new Response(null, {
         status: 204,
@@ -179,7 +173,6 @@ export default {
       });
     }
 
-    // Only POST /chat (or /)
     if (request.method !== "POST") {
       return jsonError(405, "Method not allowed. Use POST /chat", origin, env);
     }
@@ -230,19 +223,29 @@ export default {
     const temperature =
       typeof body.temperature === "number" ? body.temperature : undefined;
 
-    // Streaming response – forward chunks immediately, never buffer full reply
+    const hasSystem = messages.some((m) => m.role === "system");
+    const finalMessages = hasSystem
+      ? messages
+      : [
+          {
+            role: "system" as const,
+            content:
+              "You are Axiom AI RV, co-builder with the Axiom developer. Match the language of the latest user message. Be direct and use Markdown when helpful.",
+          },
+          ...messages,
+        ];
+
     const encoder = new TextEncoder();
     const { readable, writable } = new TransformStream();
     const writer = writable.getWriter();
 
-    // Start streaming in background so we can return the Response immediately
     ctx.waitUntil(
       (async () => {
         try {
           for await (const chunk of streamOpenAICompatible({
             config: resolved.config,
             model: resolved.resolvedModel,
-            messages,
+            messages: finalMessages,
             maxTokens,
             temperature,
             signal: request.signal,
@@ -266,7 +269,6 @@ export default {
                 ? err.message
                 : "Upstream provider error.";
           try {
-            // Append a visible error note so the client sees something
             await writer.write(encoder.encode(`\n\n_(${msg})_`));
             await writer.close();
           } catch {
