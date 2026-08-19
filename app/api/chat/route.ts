@@ -4,6 +4,7 @@ import {
 } from "@/lib/providers/router";
 import { ProviderError } from "@/lib/providers/types";
 import type { ChatMessage } from "@/lib/providers/types";
+import { buildSystemPrompt } from "@/lib/ai/systemPrompt";
 
 export const runtime = "nodejs";
 /** Hobby max is 300s with Fluid compute — stay under the ceiling. */
@@ -126,6 +127,7 @@ export async function POST(req: Request): Promise<Response> {
 /**
  * Stream proxy: browser → this route → Cloudflare Worker → AI provider.
  * Worker URL and provider keys never reach the client.
+ * Injects Axiom system prompt so identity/language rules apply on the Worker path.
  */
 async function proxyToWorker(
   workerUrl: string,
@@ -139,13 +141,22 @@ async function proxyToWorker(
 ): Promise<Response> {
   let upstream: Response;
   try {
+    const system = buildSystemPrompt({
+      githubConnected: false,
+      toolsActive: false,
+      memorySummary: payload.memorySummary,
+    });
+    const messagesWithSystem: ChatMessage[] = [
+      { role: "system", content: system },
+      ...payload.messages,
+    ];
+
     upstream = await fetch(workerUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         model: payload.model,
-        messages: payload.messages,
-        // Worker ignores unknown fields; harmless if present
+        messages: messagesWithSystem,
         preferredModel: payload.preferredModel,
         memorySummary: payload.memorySummary,
       }),
@@ -161,7 +172,6 @@ async function proxyToWorker(
     );
   }
 
-  // Non-OK JSON errors from the worker (400/503/etc.)
   if (!upstream.ok) {
     let message = `Chat worker error (${upstream.status})`;
     try {
@@ -182,7 +192,6 @@ async function proxyToWorker(
     return Response.json({ error: "Empty response from chat worker." }, { status: 502 });
   }
 
-  // Pipe the upstream stream through without buffering the full body.
   return new Response(upstream.body, {
     status: 200,
     headers: {
