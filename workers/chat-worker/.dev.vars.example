@@ -1,0 +1,10 @@
+# Copy to .dev.vars for local `wrangler dev`
+# Never commit .dev.vars
+
+GROQ_API_KEY=
+# OPENROUTER_API_KEY=
+# CEREBRAS_API_KEY=
+# SEKAI_API_KEY=
+# SEKAI_BASE_URL=
+# AXIOM_MAX_TOKENS=2048
+# ALLOWED_ORIGINS=*
