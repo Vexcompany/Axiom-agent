@@ -35,10 +35,9 @@ const META_PREFIX = "%%%META:";
 
 const MODELS = [
   { id: "auto", label: "Auto (sticky · light first)" },
-  { id: "groq/llama-3.1-8b-instant", label: "Groq · Llama 3.1 8B Instant" },
   { id: "groq/openai-gpt-oss-20b", label: "Groq · GPT-OSS 20B" },
-  { id: "groq/llama-3.3-70b-versatile", label: "Groq · Llama 3.3 70B" },
   { id: "groq/openai-gpt-oss-120b", label: "Groq · GPT-OSS 120B" },
+  { id: "groq/qwen3.6-27b", label: "Groq · Qwen3.6 27B" },
   { id: "openrouter/free", label: "OpenRouter · Free Router" },
   { id: "openrouter/gemma-4-26b-a4b-it:free", label: "OpenRouter · Gemma 4 26B free" },
   { id: "openrouter/qwen3-8b:free", label: "OpenRouter · Qwen3 8B free" },
@@ -680,6 +679,6 @@ export default function HomePage() {
           <p className="hint">Enter to send · Shift+Enter for new line</p>
         </div>
       </section>
-    </div> 
+    </div>
   );
 }
