@@ -43,3 +43,15 @@ SEKAI_API_KEY=
 - Streaming OpenAI-compatible providers
 - Local chat sessions in the browser
 - System prompt: Axiom AI RV (GitHub tools not wired yet)
+
+## Backend: Chat Streaming Worker
+
+A dedicated Cloudflare Worker for reliable AI chat streaming lives in `workers/chat-worker/`.
+
+It is designed so the future frontend can call:
+
+```
+Frontend → chat-worker → AI provider → incremental stream → Frontend
+```
+
+See [workers/chat-worker/README.md](workers/chat-worker/README.md) for install, local run, secrets, deploy, and endpoint docs.
