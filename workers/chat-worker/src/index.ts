@@ -19,6 +19,10 @@ const DEFAULT_GROQ = "https://api.groq.com/openai/v1";
 const DEFAULT_OPENROUTER = "https://openrouter.ai/api/v1";
 const DEFAULT_CEREBRAS = "https://api.cerebras.ai/v1";
 
+/** Groq model IDs after 2026-08-16 deprecations (Llama 3.1/3.3 shut down). */
+const GROQ_DEFAULT_LIGHT = "openai/gpt-oss-20b";
+const GROQ_DEFAULT_HEAVY = "openai/gpt-oss-120b";
+
 function corsHeaders(origin: string | null, env: Env): HeadersInit {
   const allowed = (env.ALLOWED_ORIGINS || "*")
     .split(",")
@@ -52,26 +56,45 @@ function jsonError(
   });
 }
 
+/** Map UI / legacy ids → upstream Groq model id. */
+function resolveGroqUpstream(raw: string): string {
+  const key = raw.trim().toLowerCase().replace(/^groq\//, "");
+  const map: Record<string, string> = {
+    auto: GROQ_DEFAULT_LIGHT,
+    "llama-3.1-8b-instant": GROQ_DEFAULT_LIGHT,
+    "llama-3.3-70b-versatile": GROQ_DEFAULT_HEAVY,
+    "openai-gpt-oss-20b": GROQ_DEFAULT_LIGHT,
+    "openai-gpt-oss-120b": GROQ_DEFAULT_HEAVY,
+    "openai/gpt-oss-20b": GROQ_DEFAULT_LIGHT,
+    "openai/gpt-oss-120b": GROQ_DEFAULT_HEAVY,
+    "gpt-oss-20b": GROQ_DEFAULT_LIGHT,
+    "gpt-oss-120b": GROQ_DEFAULT_HEAVY,
+    "qwen3.6-27b": "qwen/qwen3.6-27b",
+    "qwen/qwen3.6-27b": "qwen/qwen3.6-27b",
+  };
+  if (map[key]) return map[key];
+  if (key.includes("/")) return key;
+  return GROQ_DEFAULT_LIGHT;
+}
+
 function resolveProvider(
   model: string,
   env: Env
 ): { config: ProviderConfig; resolvedModel: string } | null {
   const lower = model.toLowerCase();
 
-  if (env.GROQ_API_KEY && (lower.startsWith("groq/") || lower.includes("llama") || lower === "auto" || !model.includes("/"))) {
-    const m = lower.startsWith("groq/") ? model.slice(5) : model === "auto" ? "llama-3.1-8b-instant" : model;
+  if (lower.startsWith("groq/") && env.GROQ_API_KEY) {
     return {
       config: {
         id: "groq",
         baseUrl: env.GROQ_BASE_URL || DEFAULT_GROQ,
         apiKey: env.GROQ_API_KEY,
       },
-      resolvedModel: m,
+      resolvedModel: resolveGroqUpstream(model),
     };
   }
 
-  if (env.OPENROUTER_API_KEY && (lower.startsWith("openrouter/") || lower.includes("/"))) {
-    const m = lower.startsWith("openrouter/") ? model.slice(11) : model;
+  if (lower.startsWith("openrouter/") && env.OPENROUTER_API_KEY) {
     return {
       config: {
         id: "openrouter",
@@ -82,43 +105,49 @@ function resolveProvider(
           "X-Title": "Axiom AI RV",
         },
       },
-      resolvedModel: m,
+      resolvedModel: model.slice("openrouter/".length),
     };
   }
 
-  if (env.CEREBRAS_API_KEY && (lower.startsWith("cerebras/") || lower.includes("llama"))) {
-    const m = lower.startsWith("cerebras/") ? model.slice(9) : model;
+  if (lower.startsWith("cerebras/") && env.CEREBRAS_API_KEY) {
     return {
       config: {
         id: "cerebras",
         baseUrl: env.CEREBRAS_BASE_URL || DEFAULT_CEREBRAS,
         apiKey: env.CEREBRAS_API_KEY,
       },
-      resolvedModel: m,
+      resolvedModel: model.slice("cerebras/".length),
     };
   }
 
-  if (env.SEKAI_API_KEY && env.SEKAI_BASE_URL && lower.startsWith("sekai/")) {
+  if (lower.startsWith("sekai/") && env.SEKAI_API_KEY && env.SEKAI_BASE_URL) {
     return {
       config: {
         id: "sekai",
         baseUrl: env.SEKAI_BASE_URL,
         apiKey: env.SEKAI_API_KEY,
       },
-      resolvedModel: model.slice(6),
+      resolvedModel: model.slice("sekai/".length),
     };
   }
 
-  if (env.GROQ_API_KEY) {
+  if (
+    env.GROQ_API_KEY &&
+    (lower === "auto" ||
+      !lower.includes("/") ||
+      lower.includes("llama") ||
+      lower.includes("gpt-oss"))
+  ) {
     return {
       config: {
         id: "groq",
         baseUrl: env.GROQ_BASE_URL || DEFAULT_GROQ,
         apiKey: env.GROQ_API_KEY,
       },
-      resolvedModel: model === "auto" ? "llama-3.1-8b-instant" : model,
+      resolvedModel: resolveGroqUpstream(model),
     };
   }
+
   if (env.OPENROUTER_API_KEY) {
     return {
       config: {
@@ -130,9 +159,11 @@ function resolveProvider(
           "X-Title": "Axiom AI RV",
         },
       },
-      resolvedModel: model === "auto" ? "meta-llama/llama-3.2-3b-instruct:free" : model,
+      resolvedModel:
+        lower === "auto" ? "openrouter/free" : model.replace(/^openrouter\//i, ""),
     };
   }
+
   if (env.CEREBRAS_API_KEY) {
     return {
       config: {
@@ -140,7 +171,8 @@ function resolveProvider(
         baseUrl: env.CEREBRAS_BASE_URL || DEFAULT_CEREBRAS,
         apiKey: env.CEREBRAS_API_KEY,
       },
-      resolvedModel: model === "auto" ? "llama3.1-8b" : model,
+      resolvedModel:
+        lower === "auto" ? "gemma-4-31b" : model.replace(/^cerebras\//i, ""),
     };
   }
 
@@ -177,7 +209,11 @@ export default {
       return jsonError(405, "Method not allowed. Use POST /chat", origin, env);
     }
 
-    if (url.pathname !== "/chat" && url.pathname !== "/" && url.pathname !== "/v1/chat/completions") {
+    if (
+      url.pathname !== "/chat" &&
+      url.pathname !== "/" &&
+      url.pathname !== "/v1/chat/completions"
+    ) {
       return jsonError(404, "Not found. Use POST /chat", origin, env);
     }
 
@@ -190,12 +226,22 @@ export default {
 
     const messages = validateMessages(body.messages);
     if (!messages) {
-      return jsonError(400, "messages must be a non-empty array of {role, content}.", origin, env);
+      return jsonError(
+        400,
+        "messages must be a non-empty array of {role, content}.",
+        origin,
+        env
+      );
     }
 
     const last = messages[messages.length - 1];
     if (last.role !== "user" || !last.content.trim()) {
-      return jsonError(400, "Last message must be a non-empty user message.", origin, env);
+      return jsonError(
+        400,
+        "Last message must be a non-empty user message.",
+        origin,
+        env
+      );
     }
 
     const model =
