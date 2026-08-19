@@ -11,14 +11,22 @@ export const maxDuration = 290;
 
 const META_PREFIX = "%%%META:";
 
+/**
+ * Server-only. Never use NEXT_PUBLIC_ here — the Worker URL must not ship to the browser.
+ * Example: https://axiom-agent.vexcorporation43.workers.dev/chat
+ */
+const WORKER_URL = process.env.CHAT_WORKER_URL?.trim();
+
 export async function POST(req: Request): Promise<Response> {
   let messages: ChatMessage[] = [];
   let requestedModel = "auto";
   let preferredModel: string | undefined;
   let existingMemory: string | undefined;
+  let rawBody: unknown;
 
   try {
-    const body = (await req.json()) as {
+    rawBody = await req.json();
+    const body = rawBody as {
       messages?: Array<{ role?: string; content?: string }>;
       model?: string;
       preferredModel?: string;
@@ -49,6 +57,16 @@ export async function POST(req: Request): Promise<Response> {
       { error: "Last message must be a non-empty user message." },
       { status: 400 }
     );
+  }
+
+  // Prefer Cloudflare Worker when configured (keys stay on the Worker).
+  if (WORKER_URL && requestedModel !== "mock") {
+    return proxyToWorker(WORKER_URL, {
+      model: requestedModel,
+      messages,
+      preferredModel,
+      memorySummary: existingMemory,
+    }, req.signal);
   }
 
   if (requestedModel === "mock" || !anyRealProviderConfigured()) {
@@ -101,6 +119,76 @@ export async function POST(req: Request): Promise<Response> {
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
       "Cache-Control": "no-store",
+    },
+  });
+}
+
+/**
+ * Stream proxy: browser → this route → Cloudflare Worker → AI provider.
+ * Worker URL and provider keys never reach the client.
+ */
+async function proxyToWorker(
+  workerUrl: string,
+  payload: {
+    model: string;
+    messages: ChatMessage[];
+    preferredModel?: string;
+    memorySummary?: string;
+  },
+  signal: AbortSignal
+): Promise<Response> {
+  let upstream: Response;
+  try {
+    upstream = await fetch(workerUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: payload.model,
+        messages: payload.messages,
+        // Worker ignores unknown fields; harmless if present
+        preferredModel: payload.preferredModel,
+        memorySummary: payload.memorySummary,
+      }),
+      signal,
+    });
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      return new Response(null, { status: 499 });
+    }
+    return Response.json(
+      { error: "Could not reach chat worker." },
+      { status: 502 }
+    );
+  }
+
+  // Non-OK JSON errors from the worker (400/503/etc.)
+  if (!upstream.ok) {
+    let message = `Chat worker error (${upstream.status})`;
+    try {
+      const data = (await upstream.json()) as { error?: string };
+      if (data?.error) message = data.error;
+    } catch {
+      try {
+        const text = (await upstream.text()).slice(0, 300);
+        if (text) message = text;
+      } catch {
+        /* ignore */
+      }
+    }
+    return Response.json({ error: message }, { status: upstream.status });
+  }
+
+  if (!upstream.body) {
+    return Response.json({ error: "Empty response from chat worker." }, { status: 502 });
+  }
+
+  // Pipe the upstream stream through without buffering the full body.
+  return new Response(upstream.body, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "no-store",
+      "X-Accel-Buffering": "no",
     },
   });
 }
