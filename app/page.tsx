@@ -680,6 +680,6 @@ export default function HomePage() {
           <p className="hint">Enter to send · Shift+Enter for new line</p>
         </div>
       </section>
-    </div>
+    </div> 
   );
 }
