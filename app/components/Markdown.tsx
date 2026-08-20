@@ -81,4 +81,4 @@ export function AssistantMarkdown({ content }: { content: string }) {
       {content}
     </ReactMarkdown>
   );
-}
+} 
