@@ -1,1 +1,2 @@
-PLACEHOLDER_WORKER
+export { GITHUB_TOOLS } from "./toolsDefs";
+export { executeGitHubTool } from "./toolsExec";
