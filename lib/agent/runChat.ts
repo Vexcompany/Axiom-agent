@@ -7,7 +7,7 @@ import {
 import { executeGitHubTool } from "@/lib/github/tools";
 
 /**
- * Server-side agent loop: model <-> tools.
+ * Server-side agent loop: model <-> tools. 
  */
 
 export type AgentEvent =
