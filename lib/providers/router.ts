@@ -1,4 +1,5 @@
 import { buildSystemPrompt } from "@/lib/ai/systemPrompt";
+import { isGitHubConfigured } from "@/lib/github/auth";
 import { compactMessages } from "@/lib/memory/compact";
 import { autoCandidates, findCatalogModel } from "./catalog";
 import { streamOpenAICompatible } from "./openaiCompatible";
@@ -152,7 +153,7 @@ export async function* streamWithFallback(
   });
 
   const system = buildSystemPrompt({
-    githubConnected: false,
+    githubConnected: isGitHubConfigured(),
     toolsActive: false,
     memorySummary: memorySummary || undefined,
   });
