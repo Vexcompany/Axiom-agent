@@ -74,4 +74,4 @@ export class ModelUnavailableError extends AIProviderError {
     this.name = "ModelUnavailableError";
     this.model = model;
   }
-}
+} 
