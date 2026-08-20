@@ -66,12 +66,3 @@ export class AIProviderError extends Error {
     this.code = code;
   }
 }
-
-export class ModelUnavailableError extends AIProviderError {
-  model: string;
-  constructor(model: string, message = "The selected model is currently unavailable.") {
-    super(message, 409);
-    this.name = "ModelUnavailableError";
-    this.model = model;
-  }
-}
