@@ -39,15 +39,34 @@ export function getGitHubBotIdentity(): { name: string; email: string } {
 }
 
 function normalizePrivateKey(raw: string): string {
-  const unescaped = raw.replace(/\\n/g, "\n");
-  if (unescaped.includes("-----BEGIN")) return unescaped;
-  try {
-    const decoded = Buffer.from(unescaped.trim(), "base64").toString("utf8");
-    if (decoded.includes("-----BEGIN")) return decoded;
-  } catch {
-    /* not base64 */
+  let s = raw.trim();
+  // Dashboard / .env sometimes wraps the whole PEM in quotes.
+  if (
+    (s.startsWith('"') && s.endsWith('"')) ||
+    (s.startsWith("'") && s.endsWith("'"))
+  ) {
+    s = s.slice(1, -1).trim();
   }
-  return unescaped;
+  // wrangler secret / Vercel often store literal \n instead of real newlines.
+  s = s.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n").replace(/\r\n/g, "\n");
+  // Base64-only blob (no PEM headers) — decode once.
+  if (!s.includes("-----BEGIN")) {
+    try {
+      const decoded = Buffer.from(s, "base64").toString("utf8").trim();
+      if (decoded.includes("-----BEGIN")) s = decoded;
+    } catch {
+      /* not base64 */
+    }
+  }
+  // PEM pasted as a single line: re-wrap headers.
+  if (s.includes("-----BEGIN") && !s.includes("\n")) {
+    s = s
+      .replace(/(-----BEGIN [A-Z ]+-----)/, "$1\n")
+      .replace(/(-----END [A-Z ]+-----)/, "\n$1");
+  }
+  // Ensure trailing newline (some parsers are picky).
+  if (s.includes("-----BEGIN") && !s.endsWith("\n")) s += "\n";
+  return s;
 }
 
 function signJwt(payload: Record<string, unknown>, pem: string): string {
@@ -55,7 +74,22 @@ function signJwt(payload: Record<string, unknown>, pem: string): string {
   const headerB64 = Buffer.from(JSON.stringify(header)).toString("base64url");
   const payloadB64 = Buffer.from(JSON.stringify(payload)).toString("base64url");
   const signingInput = `${headerB64}.${payloadB64}`;
-  const key = crypto.createPrivateKey(pem);
+  let key: crypto.KeyObject;
+  try {
+    key = crypto.createPrivateKey(pem);
+  } catch {
+    const alt = pem
+      .replace("BEGIN RSA PRIVATE KEY", "BEGIN PRIVATE KEY")
+      .replace("END RSA PRIVATE KEY", "END PRIVATE KEY");
+    try {
+      key = crypto.createPrivateKey(alt);
+    } catch {
+      throw new GitHubError(
+        "Failed to parse private key. Set GITHUB_PRIVATE_KEY on the Cloudflare Worker to the full PEM (including -----BEGIN/END-----). Use: npx wrangler secret put GITHUB_PRIVATE_KEY",
+        503
+      );
+    }
+  }
   const signature = crypto
     .sign("RSA-SHA256", Buffer.from(signingInput), key)
     .toString("base64url");
