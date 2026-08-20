@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { AssistantMarkdown } from "@/app/components/Markdown";
+import { GithubToolsToggle } from "@/app/components/GithubToolsToggle";
 import {
   type ChatMessage,
   type Session,
@@ -24,8 +25,11 @@ import {
   uid,
 } from "@/lib/chatUtils";
 
+const GH_TOOLS_KEY = "axiom.v2.githubTools";
+
 const MODELS = [
   { id: "auto", label: "Auto (sticky · light first)" },
+  { id: "gemini/gemini-2.5-flash", label: "Google · Gemini 2.5 Flash (15 RPM)" },
   { id: "groq/openai-gpt-oss-20b", label: "Groq · GPT-OSS 20B" },
   { id: "groq/openai-gpt-oss-120b", label: "Groq · GPT-OSS 120B" },
   { id: "groq/qwen3.6-27b", label: "Groq · Qwen3.6 27B" },
@@ -71,6 +75,7 @@ export default function HomePage() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [model, setModel] = useState<string>("auto");
+  const [githubTools, setGithubTools] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -100,8 +105,22 @@ export default function HomePage() {
     if (savedActive && list.some((s) => s.id === savedActive)) setActiveId(savedActive);
     else if (list[0]) setActiveId(list[0].id);
     if (savedModel && MODELS.some((m) => m.id === savedModel)) setModel(savedModel);
+    try {
+      setGithubTools(localStorage.getItem(GH_TOOLS_KEY) === "1");
+    } catch {
+      /* ignore */
+    }
     setHydrated(true);
   }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    try {
+      localStorage.setItem(GH_TOOLS_KEY, githubTools ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  }, [hydrated, githubTools]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -159,6 +178,7 @@ export default function HomePage() {
           body: JSON.stringify({
             model,
             preferredModel: sticky,
+            enableGitHubTools: githubTools,
             messages: history.map((m) => ({ role: m.role, content: m.content })),
           }),
           signal: controller.signal,
@@ -202,7 +222,7 @@ export default function HomePage() {
         abortRef.current = null;
       }
     },
-    [model, sessions, updateSession]
+    [model, githubTools, sessions, updateSession]
   );
 
   const handleSend = useCallback(
@@ -352,6 +372,7 @@ export default function HomePage() {
           <select className="modelSelect" value={model} onChange={(e) => setModel(e.target.value)} aria-label="Model">
             {MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
           </select>
+          <GithubToolsToggle checked={githubTools} onChange={setGithubTools} disabled={busy} />
           <button type="button" className="iconBtn" onClick={() => void handleCopyChat()} disabled={!active || active.messages.length === 0} title="Copy full chat">⧉</button>
           <button type="button" className="iconBtn" onClick={handleExportMarkdown} disabled={!active || active.messages.length === 0} title="Export Markdown">↓</button>
         </header>
@@ -431,7 +452,7 @@ export default function HomePage() {
               <button type="submit" className="sendBtn" disabled={input.trim().length === 0} aria-label="Send">↑</button>
             )}
           </form>
-          <p className="hint">Enter to send · Shift+Enter new line · Stop while streaming</p>
+          <p className="hint">Enter to send · Shift+Enter new line · Stop while streaming · GitHub tools off by default</p>
         </div>
       </section>
       {toast ? <div className="toast" role="status">{toast}</div> : null}
