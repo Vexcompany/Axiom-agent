@@ -2,7 +2,7 @@ import type { ToolDefinition } from "@/lib/ai/types";
 
 const MAX_READ_BYTES = 512_000;
 const MAX_TREE_ENTRIES = 2_000;
-/** Cap on a serialized tool result so big payloads never balloon later rounds. */
+/** Cap on a serialized tool result so big payloads never balloon later rounds. */ 
 const MAX_RESULT_CHARS = 60_000;
 
 const STR = (description: string) => ({ type: "string", description });
