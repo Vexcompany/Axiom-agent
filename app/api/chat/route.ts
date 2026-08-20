@@ -2,7 +2,7 @@ import { buildSystemPrompt } from "@/lib/ai/systemPrompt";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-/** Proxy only — long tool rounds run on Cloudflare Worker. */ 
+/** Proxy only — long tool rounds run on Cloudflare Worker. */
 export const maxDuration = 300;
 
 interface IncomingMessage {
@@ -34,10 +34,7 @@ function normalizeMessages(
   return out;
 }
 
-/**
- * Thin proxy → Cloudflare chat-worker.
- * GitHub tools + long streams run on the Worker (not Vercel).
- */
+/** Thin proxy → Cloudflare chat-worker. */
 export async function POST(req: Request) {
   let body: ChatBody;
   try {
@@ -139,3 +136,5 @@ export async function POST(req: Request) {
     );
   }
 }
+
+// redeploy-trigger 
