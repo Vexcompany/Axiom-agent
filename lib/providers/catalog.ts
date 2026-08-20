@@ -9,6 +9,15 @@ import type { CatalogModel, ProviderId } from "./types";
 
 export const CATALOG: readonly CatalogModel[] = [
   {
+    id: "gemini/gemini-2.5-flash",
+    upstreamModel: "gemini-2.5-flash",
+    provider: "google",
+    label: "Gemini 2.5 Flash",
+    tag: "Google · free · 15 RPM / 1500 RPD",
+    light: true,
+    note: "Free tier rate limits: ~15 req/min, 1500/day",
+  },
+  {
     id: "groq/openai-gpt-oss-20b",
     upstreamModel: "openai/gpt-oss-20b",
     provider: "groq",
