@@ -25,6 +25,8 @@ interface ChatBody {
   messages?: IncomingMessage[];
   preferredModel?: string;
   memorySummary?: string;
+  /** When false/omitted, never run GitHub tools (saves tokens). Default false. */
+  enableGitHubTools?: boolean;
 }
 
 function normalizeMessages(raw: IncomingMessage[] | undefined): ChatMessage[] {
@@ -72,7 +74,10 @@ export async function POST(req: Request) {
 
   const signal = req.signal;
   const githubConnected = isGitHubConfigured();
-  const toolsWanted = githubConnected && likelyNeedsGitHub(messages);
+  // Tools only when user toggled them on (saves tokens vs always attaching schemas).
+  const toolsEnabled = body.enableGitHubTools === true;
+  const toolsWanted =
+    toolsEnabled && githubConnected && likelyNeedsGitHub(messages);
 
   if (toolsWanted) {
     const provider = resolveAgentProvider(model);
@@ -155,7 +160,7 @@ export async function POST(req: Request) {
   const workerUrl = process.env.CHAT_WORKER_URL?.replace(/\/+$/, "");
   if (workerUrl) {
     const system = buildSystemPrompt({
-      githubConnected,
+      githubConnected: githubConnected && toolsEnabled,
       toolsActive: false,
       memorySummary: body.memorySummary,
     });
@@ -206,6 +211,7 @@ export async function POST(req: Request) {
           signal,
           preferredModel: body.preferredModel,
           existingMemory: body.memorySummary,
+          enableGitHubTools: toolsEnabled,
         })) {
           if (signal.aborted) break;
           if (chunk.type === "meta") {
