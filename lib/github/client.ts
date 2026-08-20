@@ -130,4 +130,4 @@ export async function ghData<T>(
 ): Promise<T> {
   const res = await ghRepo(owner, repo, path, opts);
   return res.data as T;
-}
+} 
