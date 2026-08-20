@@ -3,7 +3,6 @@ import { ChatMessage } from "@/lib/ai/types";
 /**
  * Decide whether a request plausibly needs the GitHub tools, and therefore
  * whether the full tool schema should be attached to the provider call.
- *
  * Sending all 13 GitHub tool schemas on every request costs a measurable
  * slice of the prompt budget (~1,600 tokens) before any output is produced.
  * To keep ordinary chat cheap we only attach tools when the conversation
