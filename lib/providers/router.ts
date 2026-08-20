@@ -20,6 +20,8 @@ export function isProviderConfigured(provider: ProviderId): boolean {
       return Boolean(env("CEREBRAS_API_KEY"));
     case "sekai":
       return Boolean(env("SEKAI_API_KEY") && env("SEKAI_BASE_URL"));
+    case "google":
+      return Boolean(env("GEMINI_API_KEY") || env("GOOGLE_API_KEY"));
     case "mock":
       return true;
     default:
@@ -32,7 +34,8 @@ export function anyRealProviderConfigured(): boolean {
     isProviderConfigured("groq") ||
     isProviderConfigured("openrouter") ||
     isProviderConfigured("cerebras") ||
-    isProviderConfigured("sekai")
+    isProviderConfigured("sekai") ||
+    isProviderConfigured("google")
   );
 }
 
@@ -79,6 +82,17 @@ function resolveEndpoint(provider: ProviderId): {
         throw new ProviderError("SEKAI credentials missing", 503, "config", "sekai");
       return { baseUrl: base, apiKey: key };
     }
+    case "google": {
+      const key = env("GEMINI_API_KEY") || env("GOOGLE_API_KEY");
+      if (!key)
+        throw new ProviderError("GEMINI_API_KEY missing", 503, "config", "google");
+      return {
+        baseUrl:
+          env("GEMINI_BASE_URL") ??
+          "https://generativelanguage.googleapis.com/v1beta/openai",
+        apiKey: key,
+      };
+    }
     default:
       throw new ProviderError(`Unknown provider: ${provider}`, 500, "config");
   }
@@ -123,7 +137,7 @@ export async function* streamWithFallback(
   const chain = resolveChain(requestedModel, opts?.preferredModel);
   if (chain.length === 0) {
     throw new ProviderError(
-      "No provider configured. Set GROQ_API_KEY, OPENROUTER_API_KEY, CEREBRAS_API_KEY, or SEKAI_* env vars.",
+      "No provider configured. Set GEMINI_API_KEY, GROQ_API_KEY, OPENROUTER_API_KEY, CEREBRAS_API_KEY, or SEKAI_* env vars.",
       503,
       "config"
     );
