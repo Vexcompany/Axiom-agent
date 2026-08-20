@@ -1,5 +1,3 @@
-import crypto from "node:crypto";
-
 export function getGitHubApiBase(): string {
   return (process.env.GITHUB_API_BASE_URL || "https://api.github.com").replace(/\/+$/, "");
 }
@@ -40,76 +38,123 @@ export function getGitHubBotIdentity(): { name: string; email: string } {
 
 function normalizePrivateKey(raw: string): string {
   let s = raw.trim();
-  // Dashboard / .env sometimes wraps the whole PEM in quotes.
   if (
     (s.startsWith('"') && s.endsWith('"')) ||
     (s.startsWith("'") && s.endsWith("'"))
   ) {
     s = s.slice(1, -1).trim();
   }
-  // wrangler secret / Vercel often store literal \n instead of real newlines.
   s = s.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n").replace(/\r\n/g, "\n");
-  // Base64-only blob (no PEM headers) — decode once.
   if (!s.includes("-----BEGIN")) {
     try {
-      const decoded = Buffer.from(s, "base64").toString("utf8").trim();
+      const decoded = atob(s.replace(/\s+/g, ""));
       if (decoded.includes("-----BEGIN")) s = decoded;
     } catch {
       /* not base64 */
     }
   }
-  // PEM pasted as a single line: re-wrap headers.
   if (s.includes("-----BEGIN") && !s.includes("\n")) {
     s = s
       .replace(/(-----BEGIN [A-Z ]+-----)/, "$1\n")
       .replace(/(-----END [A-Z ]+-----)/, "\n$1");
   }
-  // Ensure trailing newline (some parsers are picky).
   if (s.includes("-----BEGIN") && !s.endsWith("\n")) s += "\n";
   return s;
 }
 
-function signJwt(payload: Record<string, unknown>, pem: string): string {
-  const header = { alg: "RS256", typ: "JWT" };
-  const headerB64 = Buffer.from(JSON.stringify(header)).toString("base64url");
-  const payloadB64 = Buffer.from(JSON.stringify(payload)).toString("base64url");
-  const signingInput = `${headerB64}.${payloadB64}`;
-  let key: crypto.KeyObject;
-  try {
-    key = crypto.createPrivateKey(pem);
-  } catch {
-    const alt = pem
-      .replace("BEGIN RSA PRIVATE KEY", "BEGIN PRIVATE KEY")
-      .replace("END RSA PRIVATE KEY", "END PRIVATE KEY");
-    try {
-      key = crypto.createPrivateKey(alt);
-    } catch {
-      throw new GitHubError(
-        "Failed to parse private key. Set GITHUB_PRIVATE_KEY on the Cloudflare Worker to the full PEM (including -----BEGIN/END-----). Use: npx wrangler secret put GITHUB_PRIVATE_KEY",
-        503
-      );
-    }
+function pemBodyToBytes(pem: string): Uint8Array {
+  const b64 = pem
+    .replace(/-----BEGIN [A-Z0-9 ]+-----/g, "")
+    .replace(/-----END [A-Z0-9 ]+-----/g, "")
+    .replace(/\s+/g, "");
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+/** Wrap PKCS#1 RSAPrivateKey DER in PKCS#8 PrivateKeyInfo for Web Crypto. */
+function pkcs1DerToPkcs8Der(pkcs1: Uint8Array): Uint8Array {
+  const oid = Uint8Array.from([
+    0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01, 0x05, 0x00,
+  ]);
+  const len = (n: number): number[] => {
+    if (n < 0x80) return [n];
+    if (n < 0x100) return [0x81, n];
+    return [0x82, (n >> 8) & 0xff, n & 0xff];
+  };
+  const octet = Uint8Array.from([0x04, ...len(pkcs1.length), ...pkcs1]);
+  const version = Uint8Array.from([0x02, 0x01, 0x00]);
+  const body = Uint8Array.from([...version, ...oid, ...octet]);
+  return Uint8Array.from([0x30, ...len(body.length), ...body]);
+}
+
+function toBase64Url(buf: ArrayBuffer | Uint8Array): string {
+  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  let s = "";
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]!);
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+async function importPrivateKey(pem: string): Promise<CryptoKey> {
+  const normalized = normalizePrivateKey(pem);
+  const isPkcs1 = /BEGIN RSA PRIVATE KEY/.test(normalized);
+  const isPkcs8 = /BEGIN PRIVATE KEY/.test(normalized);
+  if (!isPkcs1 && !isPkcs8) {
+    throw new GitHubError(
+      "Failed to parse private key: expected PEM with BEGIN RSA PRIVATE KEY or BEGIN PRIVATE KEY. Re-set with: npx wrangler secret put GITHUB_PRIVATE_KEY",
+      503
+    );
   }
-  const signature = crypto
-    .sign("RSA-SHA256", Buffer.from(signingInput), key)
-    .toString("base64url");
-  return `${signingInput}.${signature}`;
+  let der = pemBodyToBytes(normalized);
+  if (isPkcs1) der = pkcs1DerToPkcs8Der(der);
+  try {
+    return await crypto.subtle.importKey(
+      "pkcs8",
+      der,
+      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+      false,
+      ["sign"]
+    );
+  } catch {
+    throw new GitHubError(
+      "Failed to import private key for JWT signing (Web Crypto). Ensure GITHUB_PRIVATE_KEY is a valid RSA PEM from your GitHub App.",
+      503
+    );
+  }
+}
+
+async function signJwt(
+  payload: Record<string, unknown>,
+  pem: string
+): Promise<string> {
+  const header = { alg: "RS256", typ: "JWT" };
+  const headerB64 = toBase64Url(new TextEncoder().encode(JSON.stringify(header)));
+  const payloadB64 = toBase64Url(new TextEncoder().encode(JSON.stringify(payload)));
+  const signingInput = `${headerB64}.${payloadB64}`;
+  const key = await importPrivateKey(pem);
+  const sig = await crypto.subtle.sign(
+    "RSASSA-PKCS1-v1_5",
+    key,
+    new TextEncoder().encode(signingInput)
+  );
+  return `${signingInput}.${toBase64Url(sig)}`;
 }
 
 let jwtCache: { token: string; expiresAt: number } | null = null;
 const JWT_MAX_TTL_S = 10 * 60;
 const JWT_REFRESH_BEFORE_S = 60;
 
-function getAppJwt(): string {
+async function getAppJwt(): Promise<string> {
   const cfg = getGitHubConfig();
   if (!cfg) {
     throw new GitHubError("The GitHub App is not configured on this server.", 503);
   }
   const now = Math.floor(Date.now() / 1000);
   if (jwtCache && now < jwtCache.expiresAt) return jwtCache.token;
-  const token = signJwt(
+  const token = await signJwt(
     { iss: cfg.appId, iat: now - 60, exp: now + JWT_MAX_TTL_S },
-    normalizePrivateKey(cfg.privateKey)
+    cfg.privateKey
   );
   jwtCache = { token, expiresAt: now + JWT_MAX_TTL_S - JWT_REFRESH_BEFORE_S };
   return token;
@@ -173,7 +218,7 @@ async function resolveInstallationId(owner: string, repo: string): Promise<numbe
   if (cached && Date.now() - cached.at < INSTALLATION_CACHE_TTL_MS) return cached.id;
   const res = await githubFetch(
     `${getGitHubApiBase()}/repos/${owner}/${repo}/installation`,
-    getAppJwt()
+    await getAppJwt()
   );
   const data = (await res.json()) as { id?: number };
   if (typeof data.id !== "number") {
@@ -189,7 +234,7 @@ async function createInstallationToken(installationId: number): Promise<string> 
   if (cached && cached.expiresAt > nowMs + TOKEN_REFRESH_BEFORE_MS) return cached.token;
   const res = await githubFetch(
     `${getGitHubApiBase()}/app/installations/${installationId}/access_tokens`,
-    getAppJwt(),
+    await getAppJwt(),
     { method: "POST", body: {} }
   );
   const data = (await res.json()) as { token?: string; expires_at?: string };
@@ -217,7 +262,10 @@ export interface InstallationInfo {
 }
 
 export async function listInstallations(): Promise<InstallationInfo[]> {
-  const res = await githubFetch(`${getGitHubApiBase()}/app/installations?per_page=100`, getAppJwt());
+  const res = await githubFetch(
+    `${getGitHubApiBase()}/app/installations?per_page=100`,
+    await getAppJwt()
+  );
   const data = (await res.json()) as Array<{
     id?: number;
     account?: { login?: string; html_url?: string };
