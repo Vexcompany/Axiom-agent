@@ -4,6 +4,8 @@ export interface ChatMessageToolCall {
   id: string;
   type: "function";
   function: { name: string; arguments: string };
+  /** Gemini OpenAI-compat: must be echoed on the next turn for tool loops. */
+  extra_content?: { google?: { thought_signature?: string }; [k: string]: unknown };
 }
 
 export interface ChatMessage {
@@ -27,6 +29,8 @@ export interface ParsedToolCall {
   name: string;
   arguments: Record<string, unknown>;
   rawArguments: string;
+  /** Pass-through for Gemini thought_signature (OpenAI-compat extra_content). */
+  extra_content?: { google?: { thought_signature?: string }; [k: string]: unknown };
 }
 
 export interface ToolResult {
@@ -65,4 +69,4 @@ export class AIProviderError extends Error {
     this.status = status;
     this.code = code;
   }
-} 
+}

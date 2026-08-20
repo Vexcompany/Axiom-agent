@@ -8,7 +8,7 @@ import { executeGitHubTool } from "../github/tools";
 
 export type AgentEvent =
   | { type: "text"; text: string }
-  | { type: "tool"; tool: string; ok: boolean };
+  | { type: "tool"; tool: string; ok: boolean; detail?: string };
 
 export interface RunChatOptions {
   signal?: AbortSignal;
@@ -28,7 +28,7 @@ function capToolOutput(s: string): string {
 function trimConversation(conversation: ChatMessage[]): void {
   if (conversation.length <= MAX_CONVERSATION_MESSAGES) return;
   let start = conversation.length - MAX_CONVERSATION_MESSAGES;
-  while (start > 1 && conversation[start]?.role === "tool") start -= 1;
+  while (start > 0 && conversation[start]?.role === "tool") start -= 1;
   const kept = [conversation[0], ...conversation.slice(start)];
   conversation.splice(0, conversation.length, ...kept);
 }
@@ -36,23 +36,16 @@ function trimConversation(conversation: ChatMessage[]): void {
 export async function* runChat(
   provider: AIProvider,
   messages: ChatMessage[],
-  tools: readonly ToolDefinition[],
+  toolDefs: readonly ToolDefinition[],
   opts?: RunChatOptions
 ): AsyncGenerator<AgentEvent, void, unknown> {
   const maxToolRounds = opts?.maxToolRounds ?? 8;
   const maxToolCalls = opts?.maxToolCalls ?? 24;
-  const toolDefs = tools.length > 0 ? [...tools] : undefined;
-  const conversation: ChatMessage[] = [...messages];
+  const conversation: ChatMessage[] = messages.map((m) => ({ ...m }));
   let toolCallsExecuted = 0;
 
-  for (let round = 0; ; round++) {
-    if (round > maxToolRounds) {
-      yield {
-        type: "text",
-        text: "\n\n_(Stopped after too many tool rounds. Please narrow the request.)_",
-      };
-      return;
-    }
+  for (let round = 0; round < maxToolRounds; round++) {
+    if (opts?.signal?.aborted) return;
     if (round > 0) trimConversation(conversation);
 
     let calls: ParsedToolCall[] | null = null;
@@ -61,7 +54,7 @@ export async function* runChat(
 
     for await (const chunk of provider.streamChat(conversation, {
       signal: opts?.signal,
-      tools: toolDefs,
+      tools: toolDefs as ToolDefinition[],
     })) {
       if (chunk.type === "text") {
         responded = true;
@@ -92,8 +85,9 @@ export async function* runChat(
       content: finalText,
       tool_calls: calls.map((c) => ({
         id: c.id,
-        type: "function",
+        type: "function" as const,
         function: { name: c.name, arguments: c.rawArguments },
+        ...(c.extra_content ? { extra_content: c.extra_content } : {}),
       })),
     });
 
@@ -103,7 +97,12 @@ export async function* runChat(
       const result = await executeGitHubTool(call);
       toolCallsExecuted += 1;
       executedThisRound += 1;
-      yield { type: "tool", tool: call.name, ok: result.ok };
+      yield {
+        type: "tool",
+        tool: call.name,
+        ok: result.ok,
+        detail: result.ok ? undefined : result.output.slice(0, 400),
+      };
       conversation.push({
         role: "tool",
         tool_call_id: call.id,
@@ -119,4 +118,9 @@ export async function* runChat(
       return;
     }
   }
+
+  yield {
+    type: "text",
+    text: "\n\n_(Stopped after too many tool rounds. Please narrow the request.)_",
+  };
 }
