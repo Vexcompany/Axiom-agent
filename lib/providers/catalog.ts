@@ -4,17 +4,18 @@ import type { CatalogModel, ProviderId } from "./types";
  * Model catalog — Aug 2026.
  * Groq shut down llama-3.1-8b-instant and llama-3.3-70b-versatile on 2026-08-16.
  * Replacements: openai/gpt-oss-20b and openai/gpt-oss-120b (or qwen/qwen3.6-27b).
+ * Gemini 2.5 Flash is no longer available to new users → use gemini-3.5-flash-lite.
  */
 
 export const CATALOG: readonly CatalogModel[] = [
   {
-    id: "gemini/gemini-2.5-flash",
-    upstreamModel: "gemini-2.5-flash",
+    id: "gemini/gemini-3.5-flash-lite",
+    upstreamModel: "gemini-3.5-flash-lite",
     provider: "google",
-    label: "Gemini 2.5 Flash",
-    tag: "Google · free · 15 RPM / 1500 RPD",
+    label: "Gemini 3.5 Flash-Lite",
+    tag: "Google · free · Flash-Lite · high throughput",
     light: true,
-    note: "Free tier rate limits: ~15 req/min, 1500/day",
+    note: "Replaces gemini-2.5-flash (no longer available to new users)",
   },
   {
     id: "groq/openai-gpt-oss-20b",
@@ -96,30 +97,29 @@ export const CATALOG: readonly CatalogModel[] = [
     provider: "openrouter",
     label: "Nemotron 3.5 Lightning (free)",
     tag: "OpenRouter · free",
-    light: false,
-    note: "Via OpenRouter key, not direct NIM IP",
-  },
-  {
-    id: "cerebras/gpt-oss-120b",
-    upstreamModel: "gpt-oss-120b",
-    provider: "cerebras",
-    label: "GPT-OSS 120B",
-    tag: "Cerebras · free tier",
-    light: false,
+    light: true,
   },
   {
     id: "cerebras/gemma-4-31b",
     upstreamModel: "gemma-4-31b",
     provider: "cerebras",
     label: "Gemma 4 31B",
-    tag: "Cerebras · free tier",
-    light: true,
+    tag: "Cerebras",
+    light: false,
+  },
+  {
+    id: "cerebras/gpt-oss-120b",
+    upstreamModel: "gpt-oss-120b",
+    provider: "cerebras",
+    label: "GPT-OSS 120B",
+    tag: "Cerebras",
+    light: false,
   },
   {
     id: "sekai/free/gpt-5.6-luna",
     upstreamModel: "free/gpt-5.6-luna",
     provider: "sekai",
-    label: "GPT-5.6 Luna (Sekai)",
+    label: "GPT-5.6 Luna",
     tag: "Sekai · free",
     light: true,
   },
@@ -127,15 +127,15 @@ export const CATALOG: readonly CatalogModel[] = [
     id: "sekai/gcli/grok-4.6",
     upstreamModel: "gcli/grok-4.6",
     provider: "sekai",
-    label: "Grok 4.6 (Sekai gcli)",
-    tag: "Sekai · free",
+    label: "Grok 4.6 gcli",
+    tag: "Sekai",
     light: false,
   },
   {
     id: "sekai/jb/sekai-flash",
     upstreamModel: "jb/sekai-flash",
     provider: "sekai",
-    label: "Sekai Flash (jb)",
+    label: "Flash jb",
     tag: "Sekai",
     light: true,
   },
@@ -143,41 +143,38 @@ export const CATALOG: readonly CatalogModel[] = [
     id: "sekai/free/grok-4.5",
     upstreamModel: "free/grok-4.5",
     provider: "sekai",
-    label: "Grok 4.5 (Sekai)",
+    label: "Grok 4.5 free",
     tag: "Sekai · often offline",
-    light: false,
-    note: "Upstream timeout common",
+    light: true,
   },
   {
     id: "sekai/free/grok-4.6",
     upstreamModel: "free/grok-4.6",
     provider: "sekai",
-    label: "Grok 4.6 (Sekai free)",
+    label: "Grok 4.6 free",
     tag: "Sekai · often offline",
-    light: false,
-    note: "Upstream timeout common",
+    light: true,
   },
   {
     id: "mock",
     upstreamModel: "mock",
     provider: "mock",
     label: "Mock stream",
-    tag: "No API",
+    tag: "no API",
     light: true,
   },
-] as const;
+];
 
 export function findCatalogModel(id: string): CatalogModel | undefined {
   return CATALOG.find((m) => m.id === id);
 }
 
-export function modelsForProvider(provider: ProviderId): CatalogModel[] {
-  return CATALOG.filter((m) => m.provider === provider);
-}
-
-export function autoCandidates(): CatalogModel[] {
+export function autoCandidates(preferLight = true): CatalogModel[] {
   const real = CATALOG.filter((m) => m.provider !== "mock");
+  if (!preferLight) return [...real];
   const light = real.filter((m) => m.light);
   const heavy = real.filter((m) => !m.light);
   return [...light, ...heavy];
 }
+
+export type { CatalogModel, ProviderId };
