@@ -1,4 +1,4 @@
-export type ProviderId = "groq" | "openrouter" | "cerebras" | "sekai" | "mock";
+export type ProviderId = "groq" | "openrouter" | "cerebras" | "sekai" | "google" | "mock";
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
