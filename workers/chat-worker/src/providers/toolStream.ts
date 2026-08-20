@@ -114,7 +114,15 @@ export class WorkerAIProvider implements AIProvider {
 }
 
 class ToolCallAccumulator {
-  private map = new Map<number, { id: string; name: string; arguments: string }>();
+  private map = new Map<
+    number,
+    {
+      id: string;
+      name: string;
+      arguments: string;
+      extra_content?: ParsedToolCall["extra_content"];
+    }
+  >();
   get size() {
     return this.map.size;
   }
@@ -129,12 +137,14 @@ class ToolCallAccumulator {
         index?: number;
         id?: string;
         function?: { name?: string; arguments?: string };
+        extra_content?: ParsedToolCall["extra_content"];
       };
       const i = typeof c.index === "number" ? c.index : 0;
       const prev = this.map.get(i) ?? { id: "", name: "", arguments: "" };
       if (typeof c.id === "string" && c.id) prev.id = c.id;
       if (typeof c.function?.name === "string" && c.function.name) prev.name = c.function.name;
       if (typeof c.function?.arguments === "string") prev.arguments += c.function.arguments;
+      if (c.extra_content && !prev.extra_content) prev.extra_content = c.extra_content;
       this.map.set(i, prev);
     }
     return true;
@@ -156,6 +166,7 @@ class ToolCallAccumulator {
         name: c.name,
         arguments: args,
         rawArguments: c.arguments || "{}",
+        extra_content: c.extra_content,
       });
     }
     return out;
