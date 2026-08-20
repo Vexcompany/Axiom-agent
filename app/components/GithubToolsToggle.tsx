@@ -23,4 +23,4 @@ export function GithubToolsToggle({
       <span>GitHub tools</span>
     </label>
   );
-} 
+}
