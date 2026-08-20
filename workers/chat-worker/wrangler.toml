@@ -3,15 +3,15 @@ main = "src/index.ts"
 compatibility_date = "2025-07-18"
 compatibility_flags = ["nodejs_compat"]
 
-# Secrets (set via `wrangler secret put`):
+# Secrets (wrangler secret put):
+# GEMINI_API_KEY          — recommended for tools + chat
 # GROQ_API_KEY
 # OPENROUTER_API_KEY
 # CEREBRAS_API_KEY
-# SEKAI_API_KEY
-# SEKAI_BASE_URL (optional, can be plain env)
+# GITHUB_APP_ID           — GitHub tools (Worker-side agent loop)
+# GITHUB_PRIVATE_KEY      — PEM; newlines as \n ok
+# Optional: GITHUB_BOT_NAME, GITHUB_BOT_EMAIL, SEKAI_API_KEY
 
 [vars]
-# Optional defaults (non-secret)
-# GROQ_BASE_URL = "https://api.groq.com/openai/v1"
-# OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-# CEREBRAS_BASE_URL = "https://api.cerebras.ai/v1"
+# ALLOWED_ORIGINS = "*"
+# GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
