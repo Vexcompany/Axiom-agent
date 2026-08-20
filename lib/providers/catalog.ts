@@ -2,7 +2,6 @@ import type { CatalogModel, ProviderId } from "./types";
 
 /**
  * Model catalog — Aug 2026.
- *
  * Groq shut down llama-3.1-8b-instant and llama-3.3-70b-versatile on 2026-08-16.
  * Replacements: openai/gpt-oss-20b and openai/gpt-oss-120b (or qwen/qwen3.6-27b).
  */
