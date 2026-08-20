@@ -2,7 +2,7 @@ import { buildSystemPrompt } from "@/lib/ai/systemPrompt";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-/** Proxy only — long tool rounds run on Cloudflare Worker. */ 
+/** Proxy only — long tool rounds run on Cloudflare Worker. */
 export const maxDuration = 300;
 
 interface IncomingMessage {
@@ -32,6 +32,19 @@ function normalizeMessages(
     out.push({ role, content });
   }
   return out;
+}
+
+/**
+ * Build the Worker chat endpoint URL.
+ * Accepts either:
+ *   https://xxx.workers.dev
+ *   https://xxx.workers.dev/chat
+ * so we never hit /chat/chat (Worker 404: "Not found. POST /chat").
+ */
+function resolveWorkerChatUrl(raw: string): string {
+  const base = raw.trim().replace(/\/+$/, "");
+  if (base.endsWith("/chat")) return base;
+  return `${base}/chat`;
 }
 
 /** Thin proxy → Cloudflare chat-worker. */
@@ -71,8 +84,8 @@ export async function POST(req: Request) {
     memorySummary: body.memorySummary,
   });
 
-  const workerUrl = process.env.CHAT_WORKER_URL?.replace(/\/+$/, "");
-  if (!workerUrl) {
+  const rawWorker = process.env.CHAT_WORKER_URL?.trim();
+  if (!rawWorker) {
     return Response.json(
       {
         error:
@@ -82,8 +95,10 @@ export async function POST(req: Request) {
     );
   }
 
+  const chatUrl = resolveWorkerChatUrl(rawWorker);
+
   try {
-    const upstream = await fetch(`${workerUrl}/chat`, {
+    const upstream = await fetch(chatUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -136,5 +151,3 @@ export async function POST(req: Request) {
     );
   }
 }
-
-// redeploy-trigger 
