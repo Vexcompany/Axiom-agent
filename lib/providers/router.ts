@@ -129,6 +129,7 @@ export async function* streamWithFallback(
     signal?: AbortSignal;
     preferredModel?: string;
     existingMemory?: string;
+    enableGitHubTools?: boolean;
   }
 ): AsyncGenerator<
   { type: "text"; text: string } | { type: "meta"; modelId: string },
@@ -153,7 +154,7 @@ export async function* streamWithFallback(
   });
 
   const system = buildSystemPrompt({
-    githubConnected: isGitHubConfigured(),
+    githubConnected: isGitHubConfigured() && opts?.enableGitHubTools === true,
     toolsActive: false,
     memorySummary: memorySummary || undefined,
   });
