@@ -351,9 +351,13 @@ export default {
                 await writer.write(encoder.encode(ev.text));
               } else if (ev.type === "tool") {
                 const mark = ev.ok ? "✓" : "✗";
-                await writer.write(
-                  encoder.encode(`\n\n_🔧 \`${ev.tool}\` ${mark}_\n\n`)
-                );
+                let line = `\n\n_🔧 \`${ev.tool}\` ${mark}_`;
+                if (!ev.ok && "detail" in ev && ev.detail) {
+                  const d = String(ev.detail).replace(/\s+/g, " ").slice(0, 280);
+                  line += `\n\n\`\`\`\n${d}\n\`\`\``;
+                }
+                line += `\n\n`;
+                await writer.write(encoder.encode(line));
               }
             }
             await writer.close();
