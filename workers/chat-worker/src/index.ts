@@ -20,6 +20,8 @@ export interface Env {
   GEMINI_API_KEY?: string;
   GOOGLE_API_KEY?: string;
   GEMINI_BASE_URL?: string;
+  /** Google AI Studio key #2 — Gemini 3.6 Flash only (separate account). */
+  GEMINI_36_API_KEY?: string;
   SENSENOVA_API_KEY?: string;
   SENSENOVA_BASE_URL?: string;
   GITHUB_APP_ID?: string;
@@ -119,20 +121,35 @@ function resolveProvider(
   const lower = model.toLowerCase();
   const geminiKey = env.GEMINI_API_KEY || env.GOOGLE_API_KEY;
 
-  if (
-    geminiKey &&
-    (lower.startsWith("gemini/") ||
-      lower.includes("gemini-3.6") ||
-      lower.includes("gemini-3.5-flash-lite") ||
-      lower.includes("gemini-2.5") ||
-      lower === "gemini-2.5-flash" ||
-      lower === "gemini-3.5-flash-lite" ||
-      lower === "gemini-3.6-flash")
-  ) {
-    let upstream = GEMINI_DEFAULT_MODEL;
-    if (lower.includes("3.6")) upstream = "gemini-3.6-flash";
-    else if (lower.includes("3.5-flash-lite") || lower.includes("flash-lite"))
-      upstream = "gemini-3.5-flash-lite";
+  // Gemini 3.6 Flash → dedicated second Google AI Studio key (separate account).
+  const wantsGemini36 =
+    lower.includes("gemini-3.6") ||
+    lower === "gemini-3.6-flash" ||
+    lower === "gemini/gemini-3.6-flash";
+  if (wantsGemini36) {
+    const key36 = env.GEMINI_36_API_KEY;
+    if (!key36) {
+      return null; // surface as 503 below — do not fall through to key #1 / Groq
+    }
+    return {
+      name: "Google Gemini 3.6",
+      config: {
+        id: "google",
+        baseUrl: env.GEMINI_BASE_URL || DEFAULT_GEMINI,
+        apiKey: key36,
+      },
+      resolvedModel: "gemini-3.6-flash",
+    };
+  }
+
+  // Gemini 3.5 Flash-Lite (and legacy 2.5 aliases) → primary key.
+  const wantsGemini35 =
+    lower.startsWith("gemini/") ||
+    lower.includes("gemini-3.5-flash-lite") ||
+    lower.includes("gemini-2.5") ||
+    lower === "gemini-2.5-flash" ||
+    lower === "gemini-3.5-flash-lite";
+  if (wantsGemini35 && geminiKey) {
     return {
       name: "Google Gemini",
       config: {
@@ -140,8 +157,13 @@ function resolveProvider(
         baseUrl: env.GEMINI_BASE_URL || DEFAULT_GEMINI,
         apiKey: geminiKey,
       },
-      resolvedModel: upstream,
+      resolvedModel: "gemini-3.5-flash-lite",
     };
+  }
+
+  // Explicit sensenova without key → do not fall through to Groq.
+  if (lower.startsWith("sensenova/") && !env.SENSENOVA_API_KEY) {
+    return null;
   }
 
   if (env.SENSENOVA_API_KEY && lower.startsWith("sensenova/")) {
@@ -326,7 +348,7 @@ export default {
     if (!resolved) {
       return jsonError(
         503,
-        "No provider configured. Set GEMINI_API_KEY or GROQ_API_KEY on the Worker.",
+        "No provider configured for this model. Check Worker secrets: GEMINI_API_KEY (3.5), GEMINI_36_API_KEY (3.6), SENSENOVA_API_KEY, GROQ_API_KEY, …",
         origin,
         env
       );
