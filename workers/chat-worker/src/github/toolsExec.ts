@@ -72,7 +72,7 @@ export async function executeGitHubTool(call: ParsedToolCall): Promise<ToolResul
       const installations = await listInstallations();
       const repos: unknown[] = [];
       for (const inst of installations) {
-        if (owner && inst.accountLogin.toLowerCase() !== owner.toLowerCase()) continue;
+        if (owner && inst.login.toLowerCase() !== owner.toLowerCase()) continue;
         const list = await listInstallationRepositories(inst.id);
         for (const r of list) repos.push(r);
       }

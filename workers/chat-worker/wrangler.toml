@@ -5,6 +5,7 @@ compatibility_flags = ["nodejs_compat"]
 
 # Secrets (wrangler secret put):
 # GEMINI_API_KEY          — recommended for tools + chat
+# SENSENOVA_API_KEY       — SenseNova (token.sensenova.ai)
 # GROQ_API_KEY
 # OPENROUTER_API_KEY
 # CEREBRAS_API_KEY
@@ -15,3 +16,4 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 # ALLOWED_ORIGINS = "*"
 # GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
+# SENSENOVA_BASE_URL = "https://token.sensenova.ai/v1"
