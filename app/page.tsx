@@ -30,6 +30,9 @@ const GH_TOOLS_KEY = "axiom.v2.githubTools";
 const MODELS = [
   { id: "auto", label: "Auto (sticky · light first)" },
   { id: "gemini/gemini-3.5-flash-lite", label: "Google · Gemini 3.5 Flash-Lite" },
+  { id: "gemini/gemini-3.6-flash", label: "Google · Gemini 3.6 Flash" },
+  { id: "sensenova/sensenova-6.8-flash-lite", label: "SenseNova · 6.8 Flash Lite" },
+  { id: "sensenova/sensenova-u1-fast", label: "SenseNova · U1 Fast" },
   { id: "groq/openai-gpt-oss-20b", label: "Groq · GPT-OSS 20B" },
   { id: "groq/openai-gpt-oss-120b", label: "Groq · GPT-OSS 120B" },
   { id: "groq/qwen3.6-27b", label: "Groq · Qwen3.6 27B" },
