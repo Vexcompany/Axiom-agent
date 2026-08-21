@@ -4,7 +4,8 @@ import type { CatalogModel, ProviderId } from "./types";
  * Model catalog — Aug 2026.
  * Groq shut down llama-3.1-8b-instant and llama-3.3-70b-versatile on 2026-08-16.
  * Replacements: openai/gpt-oss-20b and openai/gpt-oss-120b (or qwen/qwen3.6-27b).
- * Gemini 2.5 Flash is no longer available to new users → use gemini-3.5-flash-lite.
+ * Gemini 2.5 Flash is no longer available to new users → use gemini-3.5-flash-lite / gemini-3.6-flash.
+ * SenseNova via token.sensenova.ai OpenAI-compat.
  */
 
 export const CATALOG: readonly CatalogModel[] = [
@@ -16,6 +17,31 @@ export const CATALOG: readonly CatalogModel[] = [
     tag: "Google · free · Flash-Lite · high throughput",
     light: true,
     note: "Replaces gemini-2.5-flash (no longer available to new users)",
+  },
+  {
+    id: "gemini/gemini-3.6-flash",
+    upstreamModel: "gemini-3.6-flash",
+    provider: "google",
+    label: "Gemini 3.6 Flash",
+    tag: "Google · Flash · agentic / coding",
+    light: false,
+    note: "Gemini 3.6 Flash — function calling supported",
+  },
+  {
+    id: "sensenova/sensenova-6.8-flash-lite",
+    upstreamModel: "sensenova-6.8-flash-lite",
+    provider: "sensenova",
+    label: "SenseNova 6.8 Flash Lite",
+    tag: "SenseNova · flash-lite",
+    light: true,
+  },
+  {
+    id: "sensenova/sensenova-u1-fast",
+    upstreamModel: "sensenova-u1-fast",
+    provider: "sensenova",
+    label: "SenseNova U1 Fast",
+    tag: "SenseNova · fast",
+    light: true,
   },
   {
     id: "groq/openai-gpt-oss-20b",
