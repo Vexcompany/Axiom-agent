@@ -26,6 +26,8 @@ export interface Env {
   SENSENOVA_BASE_URL?: string;
   GITHUB_APP_ID?: string;
   GITHUB_PRIVATE_KEY?: string;
+  /** Optional PAT — preferred while App JWT 403 is unresolved. */
+  GITHUB_TOKEN?: string;
   GITHUB_BOT_NAME?: string;
   GITHUB_BOT_EMAIL?: string;
   GITHUB_API_BASE_URL?: string;
@@ -57,6 +59,7 @@ function injectGitHubEnv(env: Env): void {
   const pe = g.process.env;
   if (env.GITHUB_APP_ID) pe.GITHUB_APP_ID = env.GITHUB_APP_ID;
   if (env.GITHUB_PRIVATE_KEY) pe.GITHUB_PRIVATE_KEY = env.GITHUB_PRIVATE_KEY;
+  if (env.GITHUB_TOKEN) pe.GITHUB_TOKEN = env.GITHUB_TOKEN;
   if (env.GITHUB_BOT_NAME) pe.GITHUB_BOT_NAME = env.GITHUB_BOT_NAME;
   if (env.GITHUB_BOT_EMAIL) pe.GITHUB_BOT_EMAIL = env.GITHUB_BOT_EMAIL;
   if (env.GITHUB_API_BASE_URL) pe.GITHUB_API_BASE_URL = env.GITHUB_API_BASE_URL;
@@ -121,7 +124,6 @@ function resolveProvider(
   const lower = model.toLowerCase();
   const geminiKey = env.GEMINI_API_KEY || env.GOOGLE_API_KEY;
 
-  // Gemini 3.6 Flash → dedicated second Google AI Studio key (separate account).
   const wantsGemini36 =
     lower.includes("gemini-3.6") ||
     lower === "gemini-3.6-flash" ||
@@ -129,7 +131,7 @@ function resolveProvider(
   if (wantsGemini36) {
     const key36 = env.GEMINI_36_API_KEY;
     if (!key36) {
-      return null; // surface as 503 below — do not fall through to key #1 / Groq
+      return null;
     }
     return {
       name: "Google Gemini 3.6",
@@ -142,7 +144,6 @@ function resolveProvider(
     };
   }
 
-  // Gemini 3.5 Flash-Lite (and legacy 2.5 aliases) → primary key.
   const wantsGemini35 =
     lower.startsWith("gemini/") ||
     lower.includes("gemini-3.5-flash-lite") ||
@@ -161,7 +162,6 @@ function resolveProvider(
     };
   }
 
-  // Explicit sensenova without key → do not fall through to Groq.
   if (lower.startsWith("sensenova/") && !env.SENSENOVA_API_KEY) {
     return null;
   }
