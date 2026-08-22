@@ -17,7 +17,7 @@ export interface GitHubConfig {
 }
 
 export function getGitHubConfig(): GitHubConfig | null {
-  const appId = process.env.GITHUB_APP_ID;
+  const appId = (process.env.GITHUB_APP_ID || "").trim().replace(/^["']|["']$/g, "");
   const privateKey = process.env.GITHUB_PRIVATE_KEY;
   if (!appId || !privateKey) return null;
   return { appId, privateKey };
@@ -150,12 +150,20 @@ async function getAppJwt(): Promise<string> {
   if (!cfg) {
     throw new GitHubError("The GitHub App is not configured on this server.", 503);
   }
+  // GitHub requires `iss` to be the numeric App ID (JSON number, not a string).
+  if (!/^[0-9]+$/.test(cfg.appId)) {
+    throw new GitHubError(
+      `GITHUB_APP_ID must be digits only (the App ID from github.com/settings/apps). Got: "${cfg.appId.slice(0, 32)}"`,
+      503
+    );
+  }
+  const appIdNum = Number(cfg.appId);
   const now = Math.floor(Date.now() / 1000);
   if (jwtCache && now < jwtCache.expiresAt) return jwtCache.token;
-  const token = await signJwt(
-    { iss: cfg.appId, iat: now - 60, exp: now + JWT_MAX_TTL_S },
-    cfg.privateKey
-  );
+  // iat slightly in the past for clock skew; exp ≤ 10 minutes from now (GitHub limit).
+  const iat = now - 60;
+  const exp = now + JWT_MAX_TTL_S;
+  const token = await signJwt({ iat, exp, iss: appIdNum }, cfg.privateKey);
   jwtCache = { token, expiresAt: now + JWT_MAX_TTL_S - JWT_REFRESH_BEFORE_S };
   return token;
 }
@@ -197,22 +205,25 @@ async function githubFetch(
     throw new GitHubError("Could not reach the GitHub API.", 502);
   }
   if (!res.ok) {
-    let message = `GitHub API error (status ${res.status}).`;
+    let ghMessage = "";
+    let ghDocs = "";
     try {
-      const data = (await res.json()) as { message?: string };
-      if (data.message) message = data.message;
+      const data = (await res.json()) as { message?: string; documentation_url?: string };
+      if (data.message) ghMessage = data.message;
+      if (data.documentation_url) ghDocs = data.documentation_url;
     } catch {
       /* ignore */
     }
     let status = 502;
     if (res.status === 401 || res.status === 403) status = 403;
     else if (res.status === 404) status = 404;
+
+    let message = ghMessage || `GitHub API error (status ${res.status}).`;
     if (res.status === 401 || res.status === 403) {
       message +=
-        " — JWT App ditolak. Cek: (1) GITHUB_APP_ID cocok dengan App di github.com/settings/apps, " +
-        "(2) GITHUB_PRIVATE_KEY adalah PEM private key dari App yang sama (Generate private key), " +
-        "(3) App sudah di-Install ke akun/org (Install App → pilih repos), " +
-        "(4) redeploy Worker setelah secret put.";
+        " | Hint: iss must be numeric App ID; private key PEM must be from that same App; " +
+        "App must be Installed on the account/org; redeploy Worker after secret put.";
+      if (ghDocs) message += ` | docs: ${ghDocs}`;
     }
     throw new GitHubError(`${message} (GitHub ${res.status})`, status);
   }
