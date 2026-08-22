@@ -23,8 +23,14 @@ export function getGitHubConfig(): GitHubConfig | null {
   return { appId, privateKey };
 }
 
+export function getPatToken(): string | null {
+  const t = (process.env.GITHUB_TOKEN || "").trim();
+  return t ? t : null;
+}
+
+/** True if GitHub App OR personal access token is configured. */
 export function isGitHubConfigured(): boolean {
-  return getGitHubConfig() !== null;
+  return getGitHubConfig() !== null || getPatToken() !== null;
 }
 
 export function getGitHubBotIdentity(): { name: string; email: string } {
@@ -150,7 +156,6 @@ async function getAppJwt(): Promise<string> {
   if (!cfg) {
     throw new GitHubError("The GitHub App is not configured on this server.", 503);
   }
-  // GitHub requires `iss` to be the numeric App ID (JSON number, not a string).
   if (!/^[0-9]+$/.test(cfg.appId)) {
     throw new GitHubError(
       `GITHUB_APP_ID must be digits only (the App ID from github.com/settings/apps). Got: "${cfg.appId.slice(0, 32)}"`,
@@ -160,7 +165,6 @@ async function getAppJwt(): Promise<string> {
   const appIdNum = Number(cfg.appId);
   const now = Math.floor(Date.now() / 1000);
   if (jwtCache && now < jwtCache.expiresAt) return jwtCache.token;
-  // iat slightly in the past for clock skew; exp ≤ 10 minutes from now (GitHub limit).
   const iat = now - 60;
   const exp = now + JWT_MAX_TTL_S;
   const token = await signJwt({ iat, exp, iss: appIdNum }, cfg.privateKey);
@@ -208,9 +212,14 @@ async function githubFetch(
     let ghMessage = "";
     let ghDocs = "";
     try {
-      const data = (await res.json()) as { message?: string; documentation_url?: string };
-      if (data.message) ghMessage = data.message;
-      if (data.documentation_url) ghDocs = data.documentation_url;
+      const raw = await res.text();
+      try {
+        const data = JSON.parse(raw) as { message?: string; documentation_url?: string };
+        if (data.message) ghMessage = data.message;
+        if (data.documentation_url) ghDocs = data.documentation_url;
+      } catch {
+        if (raw) ghMessage = raw.slice(0, 300);
+      }
     } catch {
       /* ignore */
     }
@@ -221,8 +230,7 @@ async function githubFetch(
     let message = ghMessage || `GitHub API error (status ${res.status}).`;
     if (res.status === 401 || res.status === 403) {
       message +=
-        " | Hint: iss must be numeric App ID; private key PEM must be from that same App; " +
-        "App must be Installed on the account/org; redeploy Worker after secret put.";
+        " | Hint: set GITHUB_TOKEN (PAT with repo scope) to bypass App JWT, or fix App ID+PEM pair and Install App; redeploy Worker.";
       if (ghDocs) message += ` | docs: ${ghDocs}`;
     }
     throw new GitHubError(`${message} (GitHub ${res.status})`, status);
@@ -266,10 +274,14 @@ async function createInstallationToken(installationId: number): Promise<string> 
 }
 
 export async function getInstallationAccessToken(owner: string, repo: string): Promise<string> {
+  const pat = getPatToken();
+  if (pat) return pat;
   return createInstallationToken(await resolveInstallationId(owner, repo));
 }
 
 export async function getInstallationTokenById(installationId: number): Promise<string> {
+  const pat = getPatToken();
+  if (pat) return pat;
   return createInstallationToken(installationId);
 }
 
@@ -280,6 +292,18 @@ export interface InstallationInfo {
 }
 
 export async function listInstallations(): Promise<InstallationInfo[]> {
+  const pat = getPatToken();
+  if (pat) {
+    const res = await githubFetch(`${getGitHubApiBase()}/user`, pat);
+    const user = (await res.json()) as { login?: string; html_url?: string; id?: number };
+    return [
+      {
+        id: typeof user.id === "number" ? user.id : 0,
+        login: user.login ?? "pat-user",
+        htmlUrl: user.html_url ?? "",
+      },
+    ];
+  }
   const res = await githubFetch(
     `${getGitHubApiBase()}/app/installations?per_page=100`,
     await getAppJwt()
@@ -305,6 +329,25 @@ export interface RepoSummary {
 }
 
 export async function listInstallationRepositories(installationId: number): Promise<RepoSummary[]> {
+  const pat = getPatToken();
+  if (pat) {
+    const res = await githubFetch(
+      `${getGitHubApiBase()}/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member`,
+      pat
+    );
+    const data = (await res.json()) as Array<{
+      full_name?: string;
+      name?: string;
+      private?: boolean;
+      default_branch?: string;
+    }>;
+    return (Array.isArray(data) ? data : []).map((r) => ({
+      fullName: r.full_name ?? "unknown",
+      name: r.name ?? "unknown",
+      private: r.private === true,
+      defaultBranch: r.default_branch ?? "main",
+    }));
+  }
   const token = await getInstallationTokenById(installationId);
   const res = await githubFetch(
     `${getGitHubApiBase()}/installation/repositories?per_page=100`,
