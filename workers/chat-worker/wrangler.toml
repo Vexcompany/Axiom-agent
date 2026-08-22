@@ -10,8 +10,9 @@ compatibility_flags = ["nodejs_compat"]
 # GROQ_API_KEY
 # OPENROUTER_API_KEY
 # CEREBRAS_API_KEY
-# GITHUB_APP_ID           — GitHub tools (Worker-side agent loop)
+# GITHUB_APP_ID           — GitHub App (JWT)
 # GITHUB_PRIVATE_KEY      — PEM; newlines as \n ok
+# GITHUB_TOKEN            — optional PAT (ghp_…) — use if App JWT keeps 403
 # Optional: GITHUB_BOT_NAME, GITHUB_BOT_EMAIL, SEKAI_API_KEY
 
 [vars]
